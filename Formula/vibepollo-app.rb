@@ -87,40 +87,6 @@ class VibepolloApp < Formula
     system python, "-c", "import jinja2"
 
     resource("ffmpeg").stage do
-      # Ignore the expected async_accept completion when shutdown closes the RTSP acceptor.
-      rtsp_source = buildpath/"src/rtsp.cpp"
-      old_accept_handler = [
-        '      if (ec) {',
-        %q{        BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();},
-        '',
-        '        // Stop server',
-        '        clear();',
-        '        return;',
-        '      }'
-      ].join("\n")
-      new_accept_handler = [
-        '      if (ec) {',
-        '        // Closing the acceptor during shutdown completes the outstanding',
-        '        // async_accept with operation_aborted. That is not a server error,',
-        '        // and must not trigger another session cleanup pass.',
-        '        if (stopping.load(std::memory_order_acquire) ||',
-        '            ec == boost::asio::error::operation_aborted) {',
-        '          return;',
-        '        }',
-        '',
-        %q{        BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();},
-        '',
-        '        // Stop server',
-        '        clear();',
-        '        return;',
-        '      }'
-      ].join("\n")
-      rtsp_source_text = rtsp_source.read
-      if rtsp_source_text.include?(old_accept_handler)
-        inreplace rtsp_source, old_accept_handler, new_accept_handler
-      elsif !rtsp_source_text.include?(new_accept_handler)
-        odie "Upstream RTSP accept handler changed; review the shutdown cancellation patch"
-      end
       ffmpeg_prepared_binaries = Pathname.pwd
       unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
         odie "The pinned FFmpeg resource is missing libavcodec.a"
