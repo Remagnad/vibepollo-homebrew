@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: Rebuild the latest stable release even when its version was already processed
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -82,6 +88,10 @@ jobs:
           newest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1)"
           updated=false
           if [[ "$version" != "$current" && "$newest" == "$version" ]]; then
+            updated=true
+          fi
+          force_rebuild="${{ inputs.rebuild }}"
+          if [[ "$force_rebuild" == "true" && "$newest" == "$version" ]]; then
             updated=true
           fi
 
@@ -435,10 +445,6 @@ jobs:
         run: |
           set -Eeuo pipefail
           current="$(tr -d '[:space:]' < upstream-version)"
-          if [[ "$current" == "$VERSION" ]]; then
-            echo "main already contains Vibepollo $VERSION; no duplicate commit is needed."
-            exit 0
-          fi
           newest="$(printf '%s\\n%s\\n' "$current" "$VERSION" | sort -V | tail -n1)"
           if [[ "$newest" != "$VERSION" ]]; then
             echo "main already contains a newer Vibepollo formula ($current); skipping downgrade."
