@@ -635,7 +635,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           current="$(tr -d '[:space:]' < upstream-version)"
-          newest="$(printf '%s\\n%s\\n' "$current" "$VERSION" | sort -V | tail -n1)"
+          newest="$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n1)"
           if [[ "$newest" != "$VERSION" ]]; then
             echo "main already contains a newer Vibepollo formula ($current); skipping downgrade."
             exit 0
@@ -653,6 +653,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
+          current="$(tr -d '[:space:]' < upstream-version)"
+          newest="$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n1)"
+          if [[ "$newest" != "$VERSION" ]]; then
+            echo "main already contains a newer Vibepollo release ($current); skipping downgrade."
+            exit 0
+          fi
+          test -s Formula/vibepollo-app.rb
           printf '%s\n' "$VERSION" > upstream-version
           printf '%s\n' "$COMMIT" > upstream-commit
           git diff --check
