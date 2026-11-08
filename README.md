@@ -7,10 +7,10 @@ The initial package is `vibepollo-app`: the application, its runtime assets and 
 ## Install
 
 ```bash
-brew tap Remagnad/vibepollo-homebrew
-brew install vibepollo-app
+brew tap Remagnad/vibepollo-homebrew https://github.com/Remagnad/vibepollo-homebrew
+brew install Remagnad/vibepollo-homebrew/vibepollo-app
 ```
 
 The tap monitors stable releases from [Nonary/Vibepollo](https://github.com/Nonary/Vibepollo). A new release is built on GitHub Actions and only becomes the active formula after the source build, bottle checks and a clean bottle installation test succeed.
 
-The Linux bottle is built for x86_64 on Ubuntu 24.04. Building from source requires the dependencies declared in the formula.
+The Linux bottle is built for x86_64 on Ubuntu 22.04. Building from source requires the dependencies declared in the formula.
