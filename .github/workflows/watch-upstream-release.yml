@@ -76,18 +76,26 @@ jobs:
           # Compare against the live branch, not only the triggering snapshot.
           git fetch --quiet origin main
           current="0.0.0"
+          processed_commit="unknown"
           if git cat-file -e origin/main:upstream-version 2>/dev/null; then
             current="$(git show origin/main:upstream-version | tr -d '[:space:]')"
           fi
+          if git cat-file -e origin/main:upstream-commit 2>/dev/null; then
+            processed_commit="$(git show origin/main:upstream-commit | tr -d '[:space:]')"
+          fi
           if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid upstream-version state: $current"
+            exit 1
+          fi
+          if [[ "$processed_commit" != "unknown" && ! "$processed_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid upstream-commit state: $processed_commit"
             exit 1
           fi
 
           # Do not downgrade if upstream ever serves an older stable release.
           newest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1)"
           updated=false
-          if [[ "$version" != "$current" && "$newest" == "$version" ]]; then
+          if [[ "$newest" == "$version" && ( "$version" != "$current" || "$commit" != "$processed_commit" ) ]]; then
             updated=true
           fi
           force_rebuild="${{ inputs.rebuild }}"
@@ -96,7 +104,7 @@ jobs:
           fi
 
           echo "Latest stable upstream: $tag ($commit)"
-          echo "Last successfully published tap version: $current"
+          echo "Last successfully published tap version: $current ($processed_commit)"
           echo "Update required: $updated"
 
           {
@@ -458,14 +466,16 @@ jobs:
       - name: Commit the successful upstream version to main
         env:
           VERSION: ${{ needs.check-upstream.outputs.version }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           printf '%s\n' "$VERSION" > upstream-version
+          printf '%s\n' "$COMMIT" > upstream-commit
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/vibepollo-app.rb upstream-version
+          git add Formula/vibepollo-app.rb upstream-version upstream-commit
           if git diff --cached --quiet; then
             echo "Formula already matches the verified release; no commit required."
             exit 0
