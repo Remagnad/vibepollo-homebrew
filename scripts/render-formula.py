@@ -17,13 +17,15 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   sha256 "__SOURCE_SHA__"
   license "GPL-3.0-only"
 
+__BOTTLE_BLOCK__
+
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
   depends_on "ninja" => :build
-  depends_on "node" => :build
   depends_on "nlohmann-json" => :build
+  depends_on "node" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
@@ -61,7 +63,6 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
     sha256 "__FFMPEG_SHA__"
   end
 
-__BOTTLE_BLOCK__
   def install
     ENV["TAG"] = UPSTREAM_TAG
     ENV["COMMIT"] = UPSTREAM_COMMIT
