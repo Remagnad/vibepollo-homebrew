@@ -176,6 +176,7 @@ jobs:
             --commit "$COMMIT" \
             --source-url "http://127.0.0.1:8766/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$SOURCE_SHA" \
+            --source-archive "$SOURCE_ARCHIVE" \
             --output Formula/vibepollo-app.rb
 
       - name: Register the working tree as a local Homebrew tap
@@ -216,6 +217,8 @@ jobs:
           brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Verify bottle JSON parser against Homebrew output format
+        env:
+          SOURCE_ARCHIVE: ${{ steps.source.outputs.source_archive }}
         run: |
           set -Eeuo pipefail
           cat > "$RUNNER_TEMP/test-bottle.json" <<'JSON'
@@ -241,6 +244,7 @@ jobs:
             --commit 0000000000000000000000000000000000000000 \
             --source-url "https://example.invalid/source.tar.gz" \
             --source-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --source-archive "$SOURCE_ARCHIVE" \
             --bottle-json "$RUNNER_TEMP/test-bottle.json" \
             --bottle-root-url "https://example.invalid" \
             --output "$RUNNER_TEMP/test-vibepollo-app.rb"
@@ -285,6 +289,7 @@ jobs:
             --commit "$COMMIT" \
             --source-url "http://127.0.0.1:8766/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$SOURCE_SHA" \
+            --source-archive "$SOURCE_ARCHIVE" \
             --bottle-json dist/bottle.json \
             --bottle-root-url "http://127.0.0.1:8765" \
             --output Formula/vibepollo-app.rb
@@ -407,6 +412,7 @@ jobs:
             --commit "$COMMIT" \
             --source-url "$release_root/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$source_sha" \
+            --source-archive "$source_asset" \
             --bottle-json "$bottle_json" \
             --bottle-root-url "$release_root" \
             --output "$RUNNER_TEMP/vibepollo-app.rb"
