@@ -133,6 +133,45 @@ endif()""",
 endif()""",
     )
 
+    # Upstream's PyroWave colorspace path references the RTX-HDR metadata
+    # synthesizer even when the optional Linux TrueHDR target was not built.
+    # Keep the branch available only when the feature's compile definition exists;
+    # normal HDR-display metadata remains supported without CUDA/TrueHDR.
+    replace_once(
+        root / "src/video.cpp",
+        """    const bool display_is_hdr = disp.is_hdr();
+    bool hdr_display = display_is_hdr || config.rtx_hdr_active;
+
+    const auto colorspace = colorspace_from_client_config(config, hdr_display);
+
+    hdr_info = std::make_unique<hdr_info_raw_t>(false);
+    if (colorspace_is_hdr(colorspace)) {
+      SS_HDR_METADATA metadata {};
+      if (config.rtx_hdr_active) {
+        metadata = synthesize_rtx_hdr_metadata(config.rtx_hdr_peak_nits);
+        hdr_info = std::make_unique<hdr_info_raw_t>(true, metadata);
+      } else if (display_is_hdr && disp.get_hdr_metadata(metadata)) {""",
+        """    const bool display_is_hdr = disp.is_hdr();
+#ifdef SUNSHINE_ENABLE_NV_TRUEHDR
+    const bool hdr_display = display_is_hdr || config.rtx_hdr_active;
+#else
+    const bool hdr_display = display_is_hdr;
+#endif
+
+    const auto colorspace = colorspace_from_client_config(config, hdr_display);
+
+    hdr_info = std::make_unique<hdr_info_raw_t>(false);
+    if (colorspace_is_hdr(colorspace)) {
+      SS_HDR_METADATA metadata {};
+#ifdef SUNSHINE_ENABLE_NV_TRUEHDR
+      if (config.rtx_hdr_active) {
+        metadata = synthesize_rtx_hdr_metadata(config.rtx_hdr_peak_nits);
+        hdr_info = std::make_unique<hdr_info_raw_t>(true, metadata);
+      } else
+#endif
+      if (display_is_hdr && disp.get_hdr_metadata(metadata)) {""",
+    )
+
     print("Applied the Linux Homebrew CMake port patch.")
     print("libvirtualdisplay's user-space driver client remains linked; machine integration is excluded.")
 
