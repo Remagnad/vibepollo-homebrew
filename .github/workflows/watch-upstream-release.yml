@@ -27,6 +27,7 @@ env:
   HOMEBREW_NO_AUTO_UPDATE: "1"
   HOMEBREW_NO_ANALYTICS: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_AUTOREMOVE: "1"
 
 jobs:
   check-upstream:
@@ -421,16 +422,27 @@ jobs:
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
           brew uninstall --force --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
 
-          (cd dist && python3 -m http.server 8765 --bind 127.0.0.1) > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
+          /usr/bin/python3 -m http.server 8765 --bind 127.0.0.1 --directory "$PWD/dist" > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          server_ready=false
           for attempt in {1..20}; do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/bottle-http.log"
+              echo "::error::Local bottle HTTP server exited before becoming ready."
+              exit 1
+            fi
             if curl --fail --silent http://127.0.0.1:8765/ >/dev/null; then
+              server_ready=true
               break
             fi
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8765/ >/dev/null
+          if [[ "$server_ready" != "true" ]]; then
+            cat "$RUNNER_TEMP/bottle-http.log"
+            echo "::error::Local bottle HTTP server did not become ready."
+            exit 1
+          fi
 
           brew install --force-bottle --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
           brew test Remagnad/vibepollo-homebrew/vibepollo-app
