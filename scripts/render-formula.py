@@ -184,6 +184,8 @@ __BOTTLE_BLOCK__
         esac
         XDG_DATA_DIRS=$xdg_data_dirs
         export XDG_DATA_DIRS
+        VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
+        export VIBEPOLLO_ICON_THEME_PATH
 
         exec "$formula_prefix/libexec/vibepollo-bin" "$@"
       SH
@@ -221,6 +223,7 @@ __BOTTLE_BLOCK__
       #!/bin/sh
       printf '%s\\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
       printf '%s\\n' "${XDG_DATA_DIRS:-unset}"
+      printf '%s\\n' "${VIBEPOLLO_ICON_THEME_PATH:-unset}"
       printf '%s\\n' "$@"
     SH
     launcher_stub.chmod(0755)
@@ -238,6 +241,7 @@ __BOTTLE_BLOCK__
     expected_default_output = [
       "#{expected_default_bus}\n",
       "#{expected_default_xdg}\n",
+      "#{launcher_test_prefix}/share/icons\n",
       "--wrapper-test\n",
       "argument with spaces\n"
     ].join
@@ -252,6 +256,7 @@ __BOTTLE_BLOCK__
     expected_custom_output = [
       "#{custom_bus}\n",
       "#{launcher_test_prefix}/share:#{custom_xdg}\n",
+      "#{launcher_test_prefix}/share/icons\n",
       "--wrapper-test\n"
     ].join
     assert_equal expected_custom_output, custom_env_output
