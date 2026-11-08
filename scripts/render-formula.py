@@ -96,40 +96,6 @@ __BOTTLE_BLOCK__
     system python, "-c", "import jinja2"
 
     resource("ffmpeg").stage do
-      # Ignore the expected async_accept completion when shutdown closes the RTSP acceptor.
-      rtsp_source = buildpath/"src/rtsp.cpp"
-      old_accept_handler = [
-        '      if (ec) {',
-        %q{        BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();},
-        '',
-        '        // Stop server',
-        '        clear();',
-        '        return;',
-        '      }'
-      ].join("\n")
-      new_accept_handler = [
-        '      if (ec) {',
-        '        // Closing the acceptor during shutdown completes the outstanding',
-        '        // async_accept with operation_aborted. That is not a server error,',
-        '        // and must not trigger another session cleanup pass.',
-        '        if (stopping.load(std::memory_order_acquire) ||',
-        '            ec == boost::asio::error::operation_aborted) {',
-        '          return;',
-        '        }',
-        '',
-        %q{        BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();},
-        '',
-        '        // Stop server',
-        '        clear();',
-        '        return;',
-        '      }'
-      ].join("\n")
-      rtsp_source_text = rtsp_source.read
-      if rtsp_source_text.include?(old_accept_handler)
-        inreplace rtsp_source, old_accept_handler, new_accept_handler
-      elsif !rtsp_source_text.include?(new_accept_handler)
-        odie "Upstream RTSP accept handler changed; review the shutdown cancellation patch"
-      end
       ffmpeg_prepared_binaries = Pathname.pwd
       unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
         odie "The pinned FFmpeg resource is missing libavcodec.a"
@@ -283,7 +249,12 @@ __BOTTLE_BLOCK__
       "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", "XDG_DATA_DIRS=#{custom_xdg}",
       launcher_test.to_s, "--wrapper-test"
     )
-    assert_equal "#{custom_bus}\n#{launcher_test_prefix}/share:#{custom_xdg}\n--wrapper-test\n", custom_env_output
+    expected_custom_output = [
+      "#{custom_bus}\n",
+      "#{launcher_test_prefix}/share:#{custom_xdg}\n",
+      "--wrapper-test\n"
+    ].join
+    assert_equal expected_custom_output, custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
