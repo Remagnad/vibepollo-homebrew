@@ -87,6 +87,40 @@ class VibepolloApp < Formula
     system python, "-c", "import jinja2"
 
     resource("ffmpeg").stage do
+      # Ignore the expected async_accept completion when shutdown closes the RTSP acceptor.
+      rtsp_source = buildpath/"src/rtsp.cpp"
+      old_accept_handler = <<~'CPP'
+        if (ec) {
+          BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();
+
+          // Stop server
+          clear();
+          return;
+        }
+      CPP
+      new_accept_handler = <<~'CPP'
+        if (ec) {
+          // Closing the acceptor during shutdown completes the outstanding
+          // async_accept with operation_aborted. That is not a server error,
+          // and must not trigger another session cleanup pass.
+          if (stopping.load(std::memory_order_acquire) ||
+              ec == boost::asio::error::operation_aborted) {
+            return;
+          }
+
+          BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();
+
+          // Stop server
+          clear();
+          return;
+        }
+      CPP
+      rtsp_source_text = rtsp_source.read
+      if rtsp_source_text.include?(old_accept_handler)
+        inreplace rtsp_source, old_accept_handler, new_accept_handler
+      elsif !rtsp_source_text.include?(new_accept_handler)
+        odie "Upstream RTSP accept handler changed; review the shutdown cancellation patch"
+      end
       ffmpeg_prepared_binaries = Pathname.pwd
       unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
         odie "The pinned FFmpeg resource is missing libavcodec.a"
@@ -166,6 +200,16 @@ class VibepolloApp < Formula
             exit 126
             ;;
         esac
+        # GTK's icon theme does not normally search the Homebrew prefix.
+        # Expose packaged AppIndicator icons while preserving host icon paths.
+        xdg_data_dirs=${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
+        case ":$xdg_data_dirs:" in
+          *":$formula_prefix/share:"*) ;;
+          *) xdg_data_dirs="$formula_prefix/share:$xdg_data_dirs" ;;
+        esac
+        XDG_DATA_DIRS=$xdg_data_dirs
+        export XDG_DATA_DIRS
+
         exec "$formula_prefix/libexec/vibepollo-bin" "$@"
       SH
       chmod 0755, bin/"vibepollo"
@@ -201,6 +245,7 @@ class VibepolloApp < Formula
     launcher_stub.write <<~SH
       #!/bin/sh
       printf '%s\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
+      printf '%s\n' "${XDG_DATA_DIRS:-unset}"
       printf '%s\n' "$@"
     SH
     launcher_stub.chmod(0755)
@@ -211,24 +256,34 @@ class VibepolloApp < Formula
     ].find { |socket| File.socket?(socket) }
     expected_default_bus = host_bus_socket ? "unix:path=#{host_bus_socket}" : "unset"
     default_env_output = Utils.safe_popen_read(
-      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
+    expected_default_xdg = "#{launcher_test_prefix}/share:/usr/local/share:/usr/share"
     assert_equal "#{expected_default_bus}
+#{expected_default_xdg}
 --wrapper-test
 argument with spaces
 ", default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
+    custom_xdg = "/custom/share:/usr/share"
     custom_env_output = Utils.safe_popen_read(
-      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", launcher_test.to_s, "--wrapper-test"
+      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", "XDG_DATA_DIRS=#{custom_xdg}",
+      launcher_test.to_s, "--wrapper-test"
     )
     assert_equal "#{custom_bus}
+#{launcher_test_prefix}/share:#{custom_xdg}
 --wrapper-test
 ", custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
     assert_path_exists share/"applications/vibepollo-tray.desktop"
+    assert_path_exists share/"icons/hicolor/scalable/apps/io.github.Nonary.vibepollo.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-tray.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-playing.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-pausing.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-locked.svg"
     tray_desktop = (share/"applications/vibepollo-tray.desktop").read
     assert_match "Exec=#{opt_bin}/vibepollo-tray", tray_desktop
     assert_match "Icon=io.github.Nonary.vibepollo", tray_desktop
