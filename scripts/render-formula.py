@@ -162,7 +162,7 @@ def load_ffmpeg_pin(source_archive: pathlib.Path) -> dict[str, str]:
 
     def cmake_string(variable: str) -> str:
         values = re.findall(
-            r'set\\(' + re.escape(variable) + r'\\s+"([^"]+)"\\)',
+            r'set\(' + re.escape(variable) + r'\s+"([^"]+)"\)',
             cmake_source,
         )
         if not values:
