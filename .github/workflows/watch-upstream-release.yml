@@ -272,7 +272,7 @@ jobs:
             --version "$VERSION" \
             --tag "$TAG" \
             --commit "$COMMIT" \
-            --source-url "file://$SOURCE_ARCHIVE" \
+            --source-url "http://127.0.0.1:8766/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$SOURCE_SHA" \
             --bottle-json dist/bottle.json \
             --bottle-root-url "http://127.0.0.1:8765" \

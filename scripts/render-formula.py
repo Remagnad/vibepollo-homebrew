@@ -110,8 +110,8 @@ __BOTTLE_BLOCK__
     <<~EOS
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
-      or kernel modules. Those are intentionally handled by separate integration
-      packages.
+      or kernel modules. Managed virtual displays also require the separate
+      driver and machine-integration packages.
     EOS
   end
 
