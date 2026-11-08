@@ -206,6 +206,66 @@ endif()""",
       if (display_is_hdr && disp.get_hdr_metadata(metadata)) {""",
     )
 
+    # The Linux AppIndicator loop may call tray_exit() once from the owner
+    # thread and again as the loop unwinds. Make libnotify cleanup idempotent
+    # so the second call cannot inspect a released GObject.
+    replace_once(
+        root / "third-party/tray/src/tray_linux.c",
+        """static gboolean tray_exit_internal(gpointer user_data) {
+  if (currentNotification != NULL && NOTIFY_IS_NOTIFICATION(currentNotification)) {
+    int v = notify_notification_close(currentNotification, NULL);
+    if (v == TRUE) {
+      g_object_unref(G_OBJECT(currentNotification));
+    }
+  }
+  notify_uninit();
+  return G_SOURCE_REMOVE;
+}""",
+        """static gboolean tray_exit_internal(gpointer user_data) {
+  NotifyNotification *notification = currentNotification;
+  currentNotification = NULL;
+
+  if (notification != NULL && NOTIFY_IS_NOTIFICATION(notification)) {
+    int v = notify_notification_close(notification, NULL);
+    if (v == TRUE) {
+      g_object_unref(G_OBJECT(notification));
+    }
+  }
+  if (notify_is_initted()) {
+    notify_uninit();
+  }
+  return G_SOURCE_REMOVE;
+}""",
+    )
+
+    # Closing the RTSP acceptor during normal shutdown completes its pending
+    # async_accept with operation_aborted. Do not run another session clear
+    # from that callback while the RTSP loop is also draining sessions.
+    replace_once(
+        root / "src/rtsp.cpp",
+        """      if (ec) {
+        BOOST_LOG(error) << \"Couldn't accept incoming connections:\"sv << ec.message();
+
+        // Stop server
+        clear();
+        return;
+      }""",
+        """      if (ec) {
+        // Closing the acceptor during shutdown completes the outstanding
+        // async_accept with operation_aborted. That is not a server error,
+        // and must not trigger another session cleanup pass.
+        if (stopping.load(std::memory_order_acquire) ||
+            ec == boost::asio::error::operation_aborted) {
+          return;
+        }
+
+        BOOST_LOG(error) << \"Couldn't accept incoming connections:\"sv << ec.message();
+
+        // Stop server
+        clear();
+        return;
+      }""",
+    )
     print("Applied the Linux Homebrew CMake port patch.")
     print("libvirtualdisplay's user-space driver client remains linked; machine integration is excluded.")
 
