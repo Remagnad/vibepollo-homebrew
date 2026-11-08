@@ -89,32 +89,32 @@ class VibepolloApp < Formula
     resource("ffmpeg").stage do
       # Ignore the expected async_accept completion when shutdown closes the RTSP acceptor.
       rtsp_source = buildpath/"src/rtsp.cpp"
-      old_accept_handler = <<~'CPP'
-        if (ec) {
-          BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();
-
-          // Stop server
-          clear();
-          return;
-        }
-      CPP
-      new_accept_handler = <<~'CPP'
-        if (ec) {
-          // Closing the acceptor during shutdown completes the outstanding
-          // async_accept with operation_aborted. That is not a server error,
-          // and must not trigger another session cleanup pass.
-          if (stopping.load(std::memory_order_acquire) ||
-              ec == boost::asio::error::operation_aborted) {
-            return;
-          }
-
-          BOOST_LOG(error) << "Couldn't accept incoming connections:"sv << ec.message();
-
-          // Stop server
-          clear();
-          return;
-        }
-      CPP
+      old_accept_handler = [
+        "      if (ec) {",
+        "        BOOST_LOG(error) << \\"Couldn't accept incoming connections:\\"sv << ec.message();",
+        "",
+        "        // Stop server",
+        "        clear();",
+        "        return;",
+        "      }"
+      ].join("\\n")
+      new_accept_handler = [
+        "      if (ec) {",
+        "        // Closing the acceptor during shutdown completes the outstanding",
+        "        // async_accept with operation_aborted. That is not a server error,",
+        "        // and must not trigger another session cleanup pass.",
+        "        if (stopping.load(std::memory_order_acquire) ||",
+        "            ec == boost::asio::error::operation_aborted) {",
+        "          return;",
+        "        }",
+        "",
+        "        BOOST_LOG(error) << \\"Couldn't accept incoming connections:\\"sv << ec.message();",
+        "",
+        "        // Stop server",
+        "        clear();",
+        "        return;",
+        "      }"
+      ].join("\\n")
       rtsp_source_text = rtsp_source.read
       if rtsp_source_text.include?(old_accept_handler)
         inreplace rtsp_source, old_accept_handler, new_accept_handler
