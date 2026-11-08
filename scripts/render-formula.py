@@ -143,8 +143,8 @@ __BOTTLE_BLOCK__
       system "cmake", "--build", buildpath/"build", "--parallel"
       system "cmake", "--install", buildpath/"build"
 
-      # Route the Homebrew Avahi client to the host's system D-Bus socket.
-      # Keep the compiled application private and expose a small environment wrapper.
+      # Homebrew builds libdbus with its own prefix-specific default system-bus path.
+      # Point the Avahi client at the host bus, while respecting explicit user overrides.
       vibepollo_binary = bin/"vibepollo"
       odie "Vibepollo executable was not installed by CMake" unless vibepollo_binary.executable?
       libexec.mkpath
@@ -153,14 +153,26 @@ __BOTTLE_BLOCK__
       (bin/"vibepollo").write <<~SH
         #!/bin/sh
         if [ -z "${DBUS_SYSTEM_BUS_ADDRESS:-}" ]; then
-          export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket"
+          for bus_socket in /run/dbus/system_bus_socket /var/run/dbus/system_bus_socket; do
+            if [ -S "$bus_socket" ]; then
+              DBUS_SYSTEM_BUS_ADDRESS="unix:path=$bus_socket"
+              export DBUS_SYSTEM_BUS_ADDRESS
+              break
+            fi
+          done
         fi
-        launcher_path="$(readlink -f -- "$0")"
-        formula_prefix="$(dirname -- "$(dirname -- "$launcher_path")")"
+
+        launcher_path="$(readlink -f -- "$0")" || exit 126
+        case "$launcher_path" in
+          */bin/vibepollo) formula_prefix=${launcher_path%/bin/vibepollo} ;;
+          *)
+            echo "vibepollo: cannot resolve the Homebrew installation path" >&2
+            exit 126
+            ;;
+        esac
         exec "$formula_prefix/libexec/vibepollo-bin" "$@"
       SH
       chmod 0755, bin/"vibepollo"
-
 
       tray_script = bin/"vibepollo-tray"
       odie "Homebrew tray companion was not installed by CMake" unless tray_script.executable?
@@ -182,13 +194,12 @@ __BOTTLE_BLOCK__
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists libexec/"vibepollo-bin"
 
-    # Verify the launcher supplies the host D-Bus address only as a default,
-    # preserves a caller-provided address, and forwards command-line arguments.
+    # Exercise the launcher with a harmless stub instead of starting the server.
     launcher_test_prefix = testpath/"launcher-test"
     (launcher_test_prefix/"bin").mkpath
     (launcher_test_prefix/"libexec").mkpath
     launcher_test = launcher_test_prefix/"bin/vibepollo"
-    FileUtils.cp bin/"vibepollo", launcher_test
+    cp bin/"vibepollo", launcher_test
     launcher_test.chmod(0755)
     launcher_stub = launcher_test_prefix/"libexec/vibepollo-bin"
     launcher_stub.write <<~SH
@@ -198,10 +209,15 @@ __BOTTLE_BLOCK__
     SH
     launcher_stub.chmod(0755)
 
+    host_bus_socket = [
+      "/run/dbus/system_bus_socket",
+      "/var/run/dbus/system_bus_socket",
+    ].find { |socket| File.socket?(socket) }
+    expected_default_bus = host_bus_socket ? "unix:path=#{host_bus_socket}" : "unset"
     default_env_output = Utils.safe_popen_read(
-      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test"
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
-    assert_equal "unix:path=/run/dbus/system_bus_socket\n--wrapper-test\n", default_env_output
+    assert_equal "#{expected_default_bus}\n--wrapper-test\nargument with spaces\n", default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
     custom_env_output = Utils.safe_popen_read(
