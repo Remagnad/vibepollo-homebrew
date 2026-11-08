@@ -39,6 +39,7 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "sqlite"
   depends_on "vulkan-loader"
   depends_on "wayland"
+  depends_on "zlib-ng-compat"
 
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
