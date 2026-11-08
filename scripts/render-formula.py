@@ -127,22 +127,43 @@ end
 
 def load_bottle(path: pathlib.Path) -> dict:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    records = raw if isinstance(raw, list) else [raw]
+
+    # Current `brew bottle --json` output is keyed by formula full name:
+    # {"vibepollo-app": {"formula": {...}, "bottle": {"cellar": "...",
+    # "tags": {"x86_64_linux": {"sha256": "...", ...}}}}}
+    if isinstance(raw, dict) and "bottle" not in raw:
+        records = [value for value in raw.values() if isinstance(value, dict)]
+    elif isinstance(raw, list):
+        records = raw
+    else:
+        records = [raw]
+
     for record in records:
         bottle = record.get("bottle", {})
-        stable = bottle.get("stable", bottle)
-        files = stable.get("files", stable.get("tags", {}))
-        entry = files.get("x86_64_linux") if isinstance(files, dict) else None
-        if entry is None and isinstance(files, dict):
-            entry = next(
-                (value for key, value in files.items() if "x86_64_linux" in key),
-                None,
-            )
+        tags = bottle.get("tags", {})
+        entry = tags.get("x86_64_linux") if isinstance(tags, dict) else None
+
+        # Retain support for older bottle JSON shapes for easier local testing.
+        if entry is None:
+            stable = bottle.get("stable", bottle)
+            files = stable.get("files", stable.get("tags", {}))
+            if isinstance(files, dict):
+                entry = files.get("x86_64_linux")
+                if entry is None:
+                    entry = next(
+                        (value for key, value in files.items() if "x86_64_linux" in key),
+                        None,
+                    )
+
         if entry:
             sha = entry.get("sha256")
-            if not sha or len(sha) != 64:
+            if not sha or not __import__("re").fullmatch(r"[0-9a-f]{64}", sha):
                 raise SystemExit("Bottle JSON has no valid x86_64_linux SHA-256.")
-            return {"sha256": sha, "cellar": entry.get("cellar")}
+            return {
+                "sha256": sha,
+                "cellar": entry.get("cellar") or bottle.get("cellar"),
+            }
+
     raise SystemExit("Could not find the x86_64_linux bottle metadata in brew bottle JSON.")
 
 
@@ -171,8 +192,8 @@ def main() -> None:
             raise SystemExit("--bottle-root-url is required with --bottle-json")
         bottle = load_bottle(pathlib.Path(args.bottle_json))
         cellar = bottle["cellar"]
-        if cellar == ":any":
-            sha_line = f'  sha256 cellar: :any, x86_64_linux: "{bottle["sha256"]}"'
+        if cellar in (":any", ":any_skip_relocation"):
+            sha_line = f'  sha256 cellar: {cellar}, x86_64_linux: "{bottle["sha256"]}"'
         elif cellar:
             escaped_cellar = str(cellar).replace('"', '\\"')
             sha_line = f'  sha256 cellar: "{escaped_cellar}", x86_64_linux: "{bottle["sha256"]}"'
