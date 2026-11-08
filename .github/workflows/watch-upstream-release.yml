@@ -1,0 +1,347 @@
+name: Watch upstream stable releases
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/watch-upstream-release.yml"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vibepollo-upstream-release
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  check-upstream:
+    name: Check latest stable upstream release
+    runs-on: ubuntu-24.04
+    outputs:
+      updated: ${{ steps.release.outputs.updated }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+      published_at: ${{ steps.release.outputs.published_at }}
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Read latest stable release and compare
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          release_json="$(curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            https://api.github.com/repos/Nonary/Vibepollo/releases/latest)"
+
+          jq -e '(.draft == false) and (.prerelease == false)' <<<"$release_json" >/dev/null
+          tag="$(jq -r '.tag_name' <<<"$release_json")"
+          published_at="$(jq -r '.published_at' <<<"$release_json")"
+          version="${tag#v}"
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Latest upstream tag is not a stable semver release: $tag"
+            exit 1
+          fi
+
+          commit_json="$(curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            "https://api.github.com/repos/Nonary/Vibepollo/commits/$tag")"
+          commit="$(jq -r '.sha' <<<"$commit_json")"
+
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve a full commit SHA for $tag"
+            exit 1
+          fi
+
+          current="0.0.0"
+          if [[ -f upstream-version ]]; then
+            current="$(tr -d '[:space:]' < upstream-version)"
+          fi
+          if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid upstream-version state: $current"
+            exit 1
+          fi
+
+          # Do not downgrade if upstream ever serves an older stable release.
+          newest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1)"
+          updated=false
+          if [[ "$version" != "$current" && "$newest" == "$version" ]]; then
+            updated=true
+          fi
+
+          echo "Latest stable upstream: $tag ($commit)"
+          echo "Last successfully published tap version: $current"
+          echo "Update required: $updated"
+
+          {
+            echo "updated=$updated"
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "commit=$commit"
+            echo "published_at=$published_at"
+          } >> "$GITHUB_OUTPUT"
+
+  build-and-verify:
+    name: Build, bottle and verify Linux x86_64
+    needs: check-upstream
+    if: needs.check-upstream.outputs.updated == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        with:
+          core: true
+          cask: false
+
+      - name: Install system headers not provided by Homebrew
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libudev-dev
+
+      - name: Prepare exact upstream source bundle
+        id: source
+        env:
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+          RELEASE_PUBLISHED_AT: ${{ needs.check-upstream.outputs.published_at }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH="$(date -u --date="$RELEASE_PUBLISHED_AT" +%s)"
+          source_archive="$PWD/dist/vibepollo-source-${{ needs.check-upstream.outputs.version }}.tar.gz"
+
+          scripts/prepare-source.sh "$TAG" "$COMMIT" "$source_archive"
+          source_sha="$(sha256sum "$source_archive" | awk '{print $1}')"
+          echo "source_archive=$source_archive" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+          printf '%s\n' "$TAG" > dist/upstream-tag.txt
+          printf '%s\n' "$COMMIT" > dist/upstream-commit.txt
+          printf '%s\n' "$source_sha" > dist/source-sha256.txt
+          printf '%s\n' "${{ needs.check-upstream.outputs.version }}" > dist/version.txt
+
+      - name: Render temporary formula against the local source bundle
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+          SOURCE_ARCHIVE: ${{ steps.source.outputs.source_archive }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          python3 scripts/render-formula.py \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$COMMIT" \
+            --source-url "file://$SOURCE_ARCHIVE" \
+            --source-sha "$SOURCE_SHA" \
+            --output Formula/vibepollo-app.rb
+
+      - name: Build formula with Homebrew
+        run: brew install --build-bottle --verbose ./Formula/vibepollo-app.rb
+
+      - name: Test source installation and dynamic linkage
+        run: |
+          brew test vibepollo-app
+          brew linkage --test vibepollo-app
+
+      - name: Create Linux x86_64 bottle metadata
+        run: |
+          set -Eeuo pipefail
+          brew bottle --json \
+            --root-url "http://127.0.0.1:8765" \
+            --force-core-tap \
+            ./Formula/vibepollo-app.rb
+
+          bottle_file="$(find "$PWD" -maxdepth 1 -type f -name 'vibepollo-app--*.bottle.tar.gz' -print -quit)"
+          bottle_json="$(find "$PWD" -maxdepth 1 -type f -name 'vibepollo-app*.json' -print -quit)"
+          if [[ -z "$bottle_file" || -z "$bottle_json" ]]; then
+            echo "::error::Homebrew did not produce both a bottle archive and JSON metadata."
+            exit 1
+          fi
+
+          cp "$bottle_file" dist/
+          cp "$bottle_json" dist/bottle.json
+          bottle_name="$(basename "$bottle_file")"
+          bottle_sha="$(sha256sum "dist/$bottle_name" | awk '{print $1}')"
+          printf '%s\n' "$bottle_name" > dist/bottle-filename.txt
+          printf '%s\n' "$bottle_sha" > dist/bottle-sha256.txt
+
+      - name: Reinstall from the bottle in a clean Homebrew transaction
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+          SOURCE_ARCHIVE: ${{ steps.source.outputs.source_archive }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/render-formula.py \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$COMMIT" \
+            --source-url "file://$SOURCE_ARCHIVE" \
+            --source-sha "$SOURCE_SHA" \
+            --bottle-json dist/bottle.json \
+            --bottle-root-url "http://127.0.0.1:8765" \
+            --output Formula/vibepollo-app.rb
+
+          brew uninstall --force --ignore-dependencies vibepollo-app
+
+          python3 -m http.server 8765 --bind 127.0.0.1 > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8765/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8765/ >/dev/null
+
+          brew install --force-bottle --ignore-dependencies ./Formula/vibepollo-app.rb
+          brew test vibepollo-app
+          brew linkage --test vibepollo-app
+
+      - name: Render publishable formula and package manifest
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
+          source_url="$release_root/vibepollo-source-$VERSION.tar.gz"
+
+          python3 scripts/render-formula.py \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$COMMIT" \
+            --source-url "$source_url" \
+            --source-sha "$SOURCE_SHA" \
+            --bottle-json dist/bottle.json \
+            --bottle-root-url "$release_root" \
+            --output dist/vibepollo-app.rb
+
+          cp dist/vibepollo-app.rb Formula/vibepollo-app.rb
+          (
+            cd dist
+            sha256sum "vibepollo-source-$VERSION.tar.gz" "$(cat bottle-filename.txt)" > SHA256SUMS
+          )
+
+      - name: Upload verified source and bottle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vibepollo-linux-x86_64-${{ needs.check-upstream.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish release assets and update Formula
+    needs: [check-upstream, build-and-verify]
+    if: needs.check-upstream.outputs.updated == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download verified build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vibepollo-linux-x86_64-${{ needs.check-upstream.outputs.version }}
+          path: dist
+
+      - name: Set up Homebrew for formula audit
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        with:
+          core: true
+          cask: false
+
+      - name: Publish source bundle and bottle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+        run: |
+          set -Eeuo pipefail
+          release_tag="vibepollo-$VERSION"
+          release_title="Vibepollo $VERSION - Homebrew Linux x86_64"
+
+          cat > dist/release-notes.md <<EOF
+          Automated Homebrew build of upstream Vibepollo $VERSION.
+
+          - Upstream tag: $TAG
+          - Upstream commit: $COMMIT
+          - Target: Linux x86_64 (Ubuntu 22.04 builder)
+          - Source bundle and bottle were built and tested by GitHub Actions.
+          - The bottle was poured in a separate Homebrew install transaction and tested again.
+
+          Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          EOF
+
+          source_asset="dist/vibepollo-source-$VERSION.tar.gz"
+          bottle_asset="dist/$(cat dist/bottle-filename.txt)"
+          test -s "$source_asset"
+          test -s "$bottle_asset"
+          (cd dist && sha256sum --check SHA256SUMS)
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS dist/release-notes.md \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
+              --title "$release_title" --notes-file dist/release-notes.md
+          else
+            gh release create "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --title "$release_title" \
+              --notes-file dist/release-notes.md
+          fi
+
+      - name: Audit final published Formula
+        run: |
+          set -Eeuo pipefail
+          cp dist/vibepollo-app.rb Formula/vibepollo-app.rb
+          brew audit --strict --online --formula Formula/vibepollo-app.rb
+
+      - name: Commit the successful upstream version to main
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s\n' "$VERSION" > upstream-version
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/vibepollo-app.rb upstream-version
+          if git diff --cached --quiet; then
+            echo "Formula already matches the verified release; no commit required."
+            exit 0
+          fi
+          git commit -m "Update Vibepollo to $VERSION"
+          git push origin HEAD:main
