@@ -165,8 +165,8 @@ jobs:
       - name: Download pinned FFmpeg resource with retries
         id: ffmpeg
         env:
-          SOURCE_ARCHIVE: \${{ steps.source.outputs.source_archive }}
-          GH_TOKEN: \${{ github.token }}
+          SOURCE_ARCHIVE: ${{ steps.source.outputs.source_archive }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
