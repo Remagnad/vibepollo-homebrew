@@ -103,6 +103,9 @@ endif()""",
                 "${SUNSHINE_HOMEBREW_TRAY_EXECUTABLE}"
                 VIBEPOLLO_HOMEBREW_TRAY_DESKTOP
                 "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
+        string(REPLACE "@PROJECT_FQDN@" "${PROJECT_FQDN}"
+                VIBEPOLLO_HOMEBREW_TRAY_DESKTOP
+                "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vibepollo-tray.desktop"
                 "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
         install(FILES "${CMAKE_CURRENT_BINARY_DIR}/vibepollo-tray.desktop"

@@ -137,6 +137,9 @@ class VibepolloApp < Formula
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
     assert_path_exists share/"applications/vibepollo-tray.desktop"
+    tray_desktop = (share/"applications/vibepollo-tray.desktop").read
+    assert_match "Exec=#{opt_bin}/vibepollo-tray", tray_desktop
+    assert_match "Icon=io.github.Nonary.vibepollo", tray_desktop
     assert_match "usage:", shell_output("#{bin}/vibepollo-tray --help")
     system Formula["pyside"].python3, "-c", "import PySide6.QtWidgets"
   end
