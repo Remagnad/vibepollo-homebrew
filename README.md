@@ -11,6 +11,8 @@ brew tap Remagnad/vibepollo-homebrew https://github.com/Remagnad/vibepollo-homeb
 brew install Remagnad/vibepollo-homebrew/vibepollo-app
 ```
 
-The tap monitors stable releases from [Nonary/Vibepollo](https://github.com/Nonary/Vibepollo). A new release is built on GitHub Actions and only becomes the active formula after the source build, bottle checks and a clean bottle installation test succeed.
+The tap checks [Nonary/Vibepollo](https://github.com/Nonary/Vibepollo) every 15 minutes. A new stable release is built on GitHub Actions and only becomes the active formula after source-build checks, bottle creation, a clean bottle installation test and Homebrew audits succeed. Failed builds leave the last working Formula untouched.
 
-The Linux bottle is built for x86_64 on Ubuntu 22.04. Building from source requires the dependencies declared in the formula.
+To install a published update, run `brew upgrade Remagnad/vibepollo-homebrew/vibepollo-app`. Homebrew does not automatically upgrade installed packages just because the tap has changed.
+
+The Linux bottle targets x86_64 and is built on Ubuntu 22.04. Building from source also requires the distribution's `libudev-dev` package; it is not a Homebrew formula dependency.
