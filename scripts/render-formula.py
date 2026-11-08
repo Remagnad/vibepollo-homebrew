@@ -78,10 +78,12 @@ __BOTTLE_BLOCK__
 
     resource("ffmpeg").stage do
       ffmpeg_prepared_binaries = Pathname.pwd
-      odie "The pinned FFmpeg resource is missing libavcodec.a" unless
-        (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
-      odie "The pinned FFmpeg resource is missing its include directory" unless
-        (ffmpeg_prepared_binaries/"include").directory?
+      unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
+        odie "The pinned FFmpeg resource is missing libavcodec.a"
+      end
+      unless (ffmpeg_prepared_binaries/"include").directory?
+        odie "The pinned FFmpeg resource is missing its include directory"
+      end
 
       cmake_args = std_cmake_args + [
         "-G", "Ninja",
