@@ -265,10 +265,17 @@ __BOTTLE_BLOCK__
     ].find { |socket| File.socket?(socket) }
     expected_default_bus = host_bus_socket ? "unix:path=#{host_bus_socket}" : "unset"
     default_env_output = Utils.safe_popen_read(
-      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
+      launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
     expected_default_xdg = "#{launcher_test_prefix}/share:/usr/local/share:/usr/share"
-    assert_equal "#{expected_default_bus}\n#{expected_default_xdg}\n--wrapper-test\nargument with spaces\n", default_env_output
+    expected_default_output = [
+      "#{expected_default_bus}\n",
+      "#{expected_default_xdg}\n",
+      "--wrapper-test\n",
+      "argument with spaces\n"
+    ].join
+    assert_equal expected_default_output, default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
     custom_xdg = "/custom/share:/usr/share"
