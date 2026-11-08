@@ -162,6 +162,127 @@ jobs:
           printf '%s\n' "$source_sha" > dist/source-sha256.txt
           printf '%s\n' "${{ needs.check-upstream.outputs.version }}" > dist/version.txt
 
+      - name: Download pinned FFmpeg resource with retries
+        id: ffmpeg
+        env:
+          SOURCE_ARCHIVE: \${{ steps.source.outputs.source_archive }}
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          pin_json="$(python3 - "$SOURCE_ARCHIVE" <<'PY'
+          import json
+          import re
+          import sys
+          import tarfile
+
+          with tarfile.open(sys.argv[1], "r:gz") as bundle:
+              matches = [
+                  member for member in bundle.getmembers()
+                  if member.isfile()
+                  and member.name.endswith("/cmake/dependencies/ffmpeg-release.cmake")
+              ]
+              if len(matches) != 1:
+                  raise SystemExit("Expected exactly one upstream ffmpeg-release.cmake")
+              stream = bundle.extractfile(matches[0])
+              if stream is None:
+                  raise SystemExit("Could not read upstream FFmpeg release pin")
+              cmake = stream.read().decode("utf-8")
+
+          def value(name):
+              values = re.findall(
+                  r'set\(' + re.escape(name) + r'\s+"([^"]+)"\)', cmake
+              )
+              if not values:
+                  raise SystemExit(f"Missing {name} in upstream FFmpeg pin")
+              return values[-1]
+
+          repository = value("FFMPEG_GITHUB_REPO")
+          tag = value("FFMPEG_RELEASE_TAG")
+          sha256 = value("FFMPEG_SHA256_Linux_x86_64")
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+              raise SystemExit("Invalid FFmpeg repository pin")
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+", tag):
+              raise SystemExit("Invalid FFmpeg release tag pin")
+          if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+              raise SystemExit("Invalid FFmpeg SHA-256 pin")
+          print(json.dumps({
+              "repository": repository,
+              "tag": tag,
+              "sha256": sha256,
+              "url": f"https://github.com/{repository}/releases/download/{tag}/Linux-x86_64-ffmpeg.tar.gz",
+          }))
+          PY
+          )"
+
+          ffmpeg_repo="$(jq -r '.repository' <<<"$pin_json")"
+          ffmpeg_tag="$(jq -r '.tag' <<<"$pin_json")"
+          ffmpeg_sha="$(jq -r '.sha256' <<<"$pin_json")"
+          ffmpeg_url="$(jq -r '.url' <<<"$pin_json")"
+          release_api="https://api.github.com/repos/$ffmpeg_repo/releases/tags/$ffmpeg_tag"
+          release_json="$(curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$release_api")"
+          asset_id="$(jq -r '.assets[] | select(.name == "Linux-x86_64-ffmpeg.tar.gz") | .id' <<<"$release_json" | head -n1)"
+          if [[ ! "$asset_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::Pinned upstream release has no Linux x86_64 FFmpeg asset."
+            exit 1
+          fi
+
+          api_asset_url="https://api.github.com/repos/$ffmpeg_repo/releases/assets/$asset_id"
+          output="$PWD/dist/Linux-x86_64-ffmpeg.tar.gz"
+          part="$output.part"
+          downloaded=false
+
+          # Prefer GitHub's release-asset API, then fall back to the browser
+          # download URL. Retry transient 5xx/CDN failures and verify SHA-256.
+          for endpoint in api browser; do
+            for attempt in {1..4}; do
+              rm -f "$part"
+              echo "Downloading pinned FFmpeg via $endpoint (attempt $attempt/4)"
+              if [[ "$endpoint" == "api" ]]; then
+                curl --fail --silent --show-error --location \
+                  --retry 3 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
+                  --connect-timeout 30 --max-time 300 \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/octet-stream" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "$api_asset_url" -o "$part" || true
+              else
+                curl --fail --silent --show-error --location \
+                  --retry 3 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
+                  --connect-timeout 30 --max-time 300 \
+                  "$ffmpeg_url" -o "$part" || true
+              fi
+
+              if [[ -s "$part" ]]; then
+                actual_sha="$(sha256sum "$part" | awk '{print $1}')"
+                if [[ "$actual_sha" == "$ffmpeg_sha" ]]; then
+                  mv "$part" "$output"
+                  downloaded=true
+                  break 2
+                fi
+                echo "::warning::FFmpeg download SHA mismatch: expected $ffmpeg_sha, got $actual_sha"
+              fi
+
+              rm -f "$part"
+              sleep $((attempt * 5))
+            done
+          done
+
+          if [[ "$downloaded" != "true" ]]; then
+            echo "::error::Could not download the pinned FFmpeg asset with a verified SHA-256."
+            exit 1
+          fi
+
+          echo "Verified FFmpeg resource: $(du -h "$output" | awk '{print $1}')"
+          echo "FFmpeg SHA-256: $ffmpeg_sha"
+          echo "url=$ffmpeg_url" >> "$GITHUB_OUTPUT"
+          echo "sha256=$ffmpeg_sha" >> "$GITHUB_OUTPUT"
+
       - name: Render temporary formula against the local source bundle
         env:
           VERSION: ${{ needs.check-upstream.outputs.version }}
@@ -177,6 +298,7 @@ jobs:
             --source-url "http://127.0.0.1:8766/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$SOURCE_SHA" \
             --source-archive "$SOURCE_ARCHIVE" \
+            --ffmpeg-url "http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz" \
             --output Formula/vibepollo-app.rb
 
       - name: Register the working tree as a local Homebrew tap
@@ -208,8 +330,10 @@ jobs:
           curl --fail --silent \
             "http://127.0.0.1:8766/vibepollo-source-${{ needs.check-upstream.outputs.version }}.tar.gz" \
             -o /dev/null
+          curl --fail --silent http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz -o /dev/null
 
           brew install --build-bottle --verbose Remagnad/vibepollo-homebrew/vibepollo-app
+          rm -f dist/Linux-x86_64-ffmpeg.tar.gz
 
       - name: Test source installation and dynamic linkage
         run: |
