@@ -162,7 +162,31 @@ def load_ffmpeg_pin(source_archive: pathlib.Path) -> dict[str, str]:
 
     def cmake_string(variable: str) -> str:
         values = re.findall(
-            rf'^\s*set\({re.escape(variable)}\s+"([^"]+)"\)\s*    raw = json.loads(path.read_text(encoding="utf-8"))
+            r'set\\(' + re.escape(variable) + r'\\s+"([^"]+)"\\)',
+            cmake_source,
+        )
+        if not values:
+            raise SystemExit(f"Upstream FFmpeg pin is missing {variable}.")
+        return values[-1]
+
+    repository = cmake_string("FFMPEG_GITHUB_REPO")
+    tag = cmake_string("FFMPEG_RELEASE_TAG")
+    sha256 = cmake_string("FFMPEG_SHA256_Linux_x86_64")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise SystemExit(f"Unsafe upstream FFmpeg repository: {repository!r}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", tag):
+        raise SystemExit(f"Unsafe upstream FFmpeg release tag: {tag!r}")
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise SystemExit("Upstream FFmpeg pin has an invalid Linux x86_64 SHA-256.")
+
+    return {
+        "url": f"https://github.com/{repository}/releases/download/{tag}/Linux-x86_64-ffmpeg.tar.gz",
+        "sha256": sha256,
+    }
+
+
+def load_bottle(path: pathlib.Path) -> dict:
+    raw = json.loads(path.read_text(encoding="utf-8"))
 
     # Current `brew bottle --json` output is keyed by formula full name:
     # {"vibepollo-app": {"formula": {...}, "bottle": {"cellar": "...",
