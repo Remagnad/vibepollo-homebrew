@@ -192,13 +192,13 @@ class VibepolloApp < Formula
     default_env_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test"
     )
-    assert_equal "unix:path=/run/dbus/system_bus_socket\\n--wrapper-test\\n", default_env_output
+    assert_equal "unix:path=/run/dbus/system_bus_socket\n--wrapper-test\n", default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
     custom_env_output = Utils.safe_popen_read(
       "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", launcher_test.to_s, "--wrapper-test"
     )
-    assert_equal "#{custom_bus}\\n--wrapper-test\\n", custom_env_output
+    assert_equal "#{custom_bus}\n--wrapper-test\n", custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
