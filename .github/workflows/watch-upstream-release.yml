@@ -352,7 +352,7 @@ jobs:
               "formula": {"name": "vibepollo-app"},
               "bottle": {
                 "root_url": "https://example.invalid",
-                "cellar": "/home/linuxbrew/.linuxbrew/Cellar",
+  
                 "tags": {
                   "x86_64_linux": {
                     "local_filename": "vibepollo-app--9.9.9.x86_64_linux.bottle.tar.gz",
@@ -373,7 +373,7 @@ jobs:
             --bottle-json "$RUNNER_TEMP/test-bottle.json" \
             --bottle-root-url "https://example.invalid" \
             --output "$RUNNER_TEMP/test-vibepollo-app.rb"
-          grep -F 'sha256 cellar: "/home/linuxbrew/.linuxbrew/Cellar", x86_64_linux: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
+          grep -F 'sha256 x86_64_linux: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
             "$RUNNER_TEMP/test-vibepollo-app.rb"
 
       - name: Create Linux x86_64 bottle metadata
