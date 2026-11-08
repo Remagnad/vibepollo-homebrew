@@ -127,7 +127,7 @@ endif()""",
         """target_link_libraries(sunshine ${SUNSHINE_EXTERNAL_LIBRARIES} ${EXTRA_LIBS})
 if(SUNSHINE_BUILD_HOMEBREW)
     find_package(ZLIB REQUIRED)
-    target_link_libraries(sunshine PRIVATE ZLIB::ZLIB)
+    target_link_libraries(sunshine ZLIB::ZLIB)
 endif()""",
     )
 
