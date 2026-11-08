@@ -6,17 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-import sys
-from urllib.parse import urlparse
 
 
 FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   license "GPL-3.0-only"
-  version "{version}"
-  url "{source_url}"
-  sha256 "{source_sha}"
+  version "__VERSION__"
+  url "__SOURCE_URL__"
+  sha256 "__SOURCE_SHA__"
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
@@ -42,7 +40,6 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "wayland"
 
   depends_on "cmake" => :build
-  depends_on "gcc@14" => :build
   depends_on "jinja2-cli" => :build
   depends_on "ninja" => :build
   depends_on "node" => :build
@@ -53,10 +50,10 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "vulkan-headers" => :build
 
   # These values are generated from the exact GitHub release tag and commit.
-  UPSTREAM_TAG = "{tag}"
-  UPSTREAM_COMMIT = "{commit}"
+  UPSTREAM_TAG = "__UPSTREAM_TAG__"
+  UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__"
 
-{bottle_block}
+__BOTTLE_BLOCK__
   def install
     ENV["TAG"] = UPSTREAM_TAG
     ENV["COMMIT"] = UPSTREAM_COMMIT
@@ -188,14 +185,17 @@ def main() -> None:
             "  end\n"
         )
 
-    rendered = FORMULA_TEMPLATE.format(
-        version=args.version,
-        tag=args.tag,
-        commit=args.commit,
-        source_url=args.source_url,
-        source_sha=args.source_sha,
-        bottle_block=bottle_block.rstrip(),
-    )
+    replacements = {
+        "__VERSION__": args.version,
+        "__UPSTREAM_TAG__": args.tag,
+        "__UPSTREAM_COMMIT__": args.commit,
+        "__SOURCE_URL__": args.source_url,
+        "__SOURCE_SHA__": args.source_sha,
+        "__BOTTLE_BLOCK__": bottle_block.rstrip(),
+    }
+    rendered = FORMULA_TEMPLATE
+    for marker, value in replacements.items():
+        rendered = rendered.replace(marker, value)
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered, encoding="utf-8")
