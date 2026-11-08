@@ -117,6 +117,20 @@ endif()""",
 endif()""",
     )
 
+    # The Homebrew curl bottle has private zlib references that are not
+    # propagated by pkg-config's public libcurl link flags. confighttp's
+    # translation unit pulls those references into the final executable, so
+    # link the Homebrew-compatible zlib explicitly.
+    replace_once(
+        root / "cmake/targets/common.cmake",
+        "target_link_libraries(sunshine ${SUNSHINE_EXTERNAL_LIBRARIES} ${EXTRA_LIBS})",
+        """target_link_libraries(sunshine ${SUNSHINE_EXTERNAL_LIBRARIES} ${EXTRA_LIBS})
+if(SUNSHINE_BUILD_HOMEBREW)
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(sunshine PRIVATE ZLIB::ZLIB)
+endif()""",
+    )
+
     replace_once(
         root / "cmake/targets/linux.cmake",
         """list(APPEND SUNSHINE_EXTERNAL_LIBRARIES
