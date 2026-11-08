@@ -244,7 +244,7 @@ endif()""",
     replace_once(
         root / "src/rtsp.cpp",
         """      if (ec) {
-        BOOST_LOG(error) << \"Couldn't accept incoming connections:\"sv << ec.message();
+        BOOST_LOG(error) << \"Couldn't accept incoming connections: \"sv << ec.message();
 
         // Stop server
         clear();
@@ -259,13 +259,15 @@ endif()""",
           return;
         }
 
-        BOOST_LOG(error) << \"Couldn't accept incoming connections:\"sv << ec.message();
+        BOOST_LOG(error) << \"Couldn't accept incoming connections: \"sv << ec.message();
 
         // Stop server
         clear();
         return;
       }""",
     )
+    print("Applied the Linux AppIndicator shutdown cleanup fix.")
+    print("Applied the RTSP shutdown cancellation fix.")
     print("Applied the Linux Homebrew CMake port patch.")
     print("libvirtualdisplay's user-space driver client remains linked; machine integration is excluded.")
 
