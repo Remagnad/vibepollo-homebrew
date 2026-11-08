@@ -573,6 +573,7 @@ jobs:
           # asset is published. The build job never supplies executable formula
           # code to this write-enabled job.
           cp "$RUNNER_TEMP/vibepollo-app.rb" "$tap_path/Formula/vibepollo-app.rb"
+          brew trust --formula Remagnad/vibepollo-homebrew/vibepollo-app
           brew audit --strict --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
           (
