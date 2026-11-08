@@ -178,6 +178,17 @@ jobs:
             --source-sha "$SOURCE_SHA" \
             --output Formula/vibepollo-app.rb
 
+      - name: Register the working tree as a local Homebrew tap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tap_name="Remagnad/vibepollo-homebrew"
+          brew tap-new --no-git "$tap_name"
+          tap_path="$(brew --repo "$tap_name")"
+          mkdir -p "$tap_path/Formula"
+          cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+          echo "tap_path=$tap_path" >> "$GITHUB_ENV"
+
       - name: Build formula with Homebrew
         shell: bash
         run: |
@@ -197,12 +208,12 @@ jobs:
             "http://127.0.0.1:8766/vibepollo-source-${{ needs.check-upstream.outputs.version }}.tar.gz" \
             -o /dev/null
 
-          brew install --build-bottle --verbose ./Formula/vibepollo-app.rb
+          brew install --build-bottle --verbose Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Test source installation and dynamic linkage
         run: |
-          brew test vibepollo-app
-          brew linkage --test vibepollo-app
+          brew test Remagnad/vibepollo-homebrew/vibepollo-app
+          brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Verify bottle JSON parser against Homebrew output format
         run: |
@@ -239,10 +250,10 @@ jobs:
       - name: Create Linux x86_64 bottle metadata
         run: |
           set -Eeuo pipefail
+          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-${{ needs.check-upstream.outputs.version }}"
           brew bottle --json \
-            --root-url "http://127.0.0.1:8765" \
-            --force-core-tap \
-            ./Formula/vibepollo-app.rb
+            --root-url "$release_root" \
+            Remagnad/vibepollo-homebrew/vibepollo-app
 
           bottle_file="$(find "$PWD" -maxdepth 1 -type f -name 'vibepollo-app--*.bottle.tar.gz' -print -quit)"
           bottle_json="$(find "$PWD" -maxdepth 1 -type f -name 'vibepollo-app*.json' -print -quit)"
@@ -278,7 +289,8 @@ jobs:
             --bottle-root-url "http://127.0.0.1:8765" \
             --output Formula/vibepollo-app.rb
 
-          brew uninstall --force --ignore-dependencies vibepollo-app
+          cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+          brew uninstall --force --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
 
           (cd dist && python3 -m http.server 8765 --bind 127.0.0.1) > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
           server_pid=$!
@@ -291,9 +303,9 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8765/ >/dev/null
 
-          brew install --force-bottle --ignore-dependencies ./Formula/vibepollo-app.rb
-          brew test vibepollo-app
-          brew linkage --test vibepollo-app
+          brew install --force-bottle --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
+          brew test Remagnad/vibepollo-homebrew/vibepollo-app
+          brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Upload verified source and bottle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -325,6 +337,14 @@ jobs:
         with:
           core: true
           cask: false
+
+      - name: Create a local tap for formula validation
+        run: |
+          set -Eeuo pipefail
+          brew tap-new --no-git Remagnad/vibepollo-homebrew
+          tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
+          mkdir -p "$tap_path/Formula"
+          echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
       - name: Verify build artifact and render Formula in isolated publish job
         env:
@@ -394,7 +414,8 @@ jobs:
           # Audit the formula generated from trusted tap code before any release
           # asset is published. The build job never supplies executable formula
           # code to this write-enabled job.
-          brew audit --strict --formula "$RUNNER_TEMP/vibepollo-app.rb"
+          cp "$RUNNER_TEMP/vibepollo-app.rb" "$tap_path/Formula/vibepollo-app.rb"
+          brew audit --strict --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
           (
             cd dist
@@ -461,7 +482,8 @@ jobs:
 
           mkdir -p Formula
           cp "$RUNNER_TEMP/vibepollo-app.rb" Formula/vibepollo-app.rb
-          brew audit --strict --online --formula Formula/vibepollo-app.rb
+          cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+          brew audit --strict --online --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Commit the successful upstream version to main
         env:
