@@ -394,9 +394,17 @@ jobs:
           cp "$bottle_file" dist/
           cp "$bottle_json" dist/bottle.json
           bottle_name="$(basename "$bottle_file")"
+          # Homebrew derives the download URL using a single separator between
+          # the formula name and version, while `brew bottle` emits `--`.
+          # Publish a byte-identical alias under the URL Homebrew requests.
+          bottle_url_name="vibepollo-app-${{ needs.check-upstream.outputs.version }}.x86_64_linux.bottle.tar.gz"
+          cp "dist/$bottle_name" "dist/$bottle_url_name"
           bottle_sha="$(sha256sum "dist/$bottle_name" | awk '{print $1}')"
+          alias_sha="$(sha256sum "dist/$bottle_url_name" | awk '{print $1}')"
+          test "$bottle_sha" = "$alias_sha"
           printf '%s\n' "$bottle_name" > dist/bottle-filename.txt
           printf '%s\n' "$bottle_sha" > dist/bottle-sha256.txt
+          printf '%s\n' "$bottle_url_name" > dist/bottle-url-filename.txt
 
       - name: Reinstall from the bottle in a clean Homebrew transaction
         env:
@@ -504,13 +512,21 @@ jobs:
 
           bottle_name="$(basename "$bottle_file")"
           recorded_name="$(tr -d '[:space:]' < dist/bottle-filename.txt)"
+          bottle_url_name="$(tr -d '[:space:]' < dist/bottle-url-filename.txt)"
+          bottle_url_file="dist/$bottle_url_name"
           if [[ "$bottle_name" != "$recorded_name" ]]; then
             echo "::error::Bottle filename does not match the build manifest."
             exit 1
           fi
+          test -s "$bottle_url_file"
 
           source_sha="$(sha256sum "$source_asset" | awk '{print $1}')"
           bottle_sha="$(sha256sum "$bottle_file" | awk '{print $1}')"
+          bottle_url_sha="$(sha256sum "$bottle_url_file" | awk '{print $1}')"
+          if [[ "$bottle_sha" != "$bottle_url_sha" ]]; then
+            echo "::error::Bottle URL alias does not match the verified bottle archive."
+            exit 1
+          fi
           python3 - "$bottle_json" "$bottle_sha" <<'PY'
           import json
           import re
@@ -561,7 +577,7 @@ jobs:
 
           (
             cd dist
-            sha256sum "vibepollo-source-$VERSION.tar.gz" "$bottle_name" > SHA256SUMS
+            sha256sum "vibepollo-source-$VERSION.tar.gz" "$bottle_name" "$bottle_url_name" > SHA256SUMS
           )
 
       - name: Publish source bundle and bottle
@@ -589,17 +605,19 @@ jobs:
 
           source_asset="dist/vibepollo-source-$VERSION.tar.gz"
           bottle_asset="dist/$(cat dist/bottle-filename.txt)"
+          bottle_url_asset="dist/$(cat dist/bottle-url-filename.txt)"
           test -s "$source_asset"
           test -s "$bottle_asset"
+          test -s "$bottle_url_asset"
           (cd dist && sha256sum --check SHA256SUMS)
 
           if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS \
+            gh release upload "$release_tag" "$source_asset" "$bottle_asset" "$bottle_url_asset" dist/bottle.json dist/SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
               --title "$release_title" --notes-file dist/release-notes.md
           else
-            gh release create "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS \
+            gh release create "$release_tag" "$source_asset" "$bottle_asset" "$bottle_url_asset" dist/bottle.json dist/SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" --title "$release_title" \
               --notes-file dist/release-notes.md
           fi
