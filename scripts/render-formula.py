@@ -138,6 +138,10 @@ def load_bottle(path: pathlib.Path) -> dict:
         records = [raw]
 
     for record in records:
+        formula = record.get("formula", {})
+        if formula and formula.get("name") != "vibepollo-app":
+            continue
+
         bottle = record.get("bottle", {})
         tags = bottle.get("tags", {})
         entry = tags.get("x86_64_linux") if isinstance(tags, dict) else None
@@ -158,10 +162,16 @@ def load_bottle(path: pathlib.Path) -> dict:
             sha = entry.get("sha256")
             if not sha or not __import__("re").fullmatch(r"[0-9a-f]{64}", sha):
                 raise SystemExit("Bottle JSON has no valid x86_64_linux SHA-256.")
-            return {
-                "sha256": sha,
-                "cellar": entry.get("cellar") or bottle.get("cellar"),
-            }
+
+            cellar = entry.get("cellar") or bottle.get("cellar")
+            if cellar is not None:
+                if not isinstance(cellar, str):
+                    raise SystemExit("Bottle JSON cellar metadata must be a string.")
+                if cellar not in ("any", ":any", "any_skip_relocation", ":any_skip_relocation"):
+                    if not __import__("re").fullmatch(r"/[A-Za-z0-9_./+-]+", cellar):
+                        raise SystemExit(f"Unsafe or unsupported bottle cellar path: {cellar!r}")
+
+            return {"sha256": sha, "cellar": cellar}
 
     raise SystemExit("Could not find the x86_64_linux bottle metadata in brew bottle JSON.")
 
@@ -191,8 +201,10 @@ def main() -> None:
             raise SystemExit("--bottle-root-url is required with --bottle-json")
         bottle = load_bottle(pathlib.Path(args.bottle_json))
         cellar = bottle["cellar"]
-        if cellar in (":any", ":any_skip_relocation"):
-            sha_line = f'  sha256 cellar: {cellar}, x86_64_linux: "{bottle["sha256"]}"'
+        if cellar in ("any", ":any"):
+            sha_line = f'  sha256 cellar: :any, x86_64_linux: "{bottle["sha256"]}"'
+        elif cellar in ("any_skip_relocation", ":any_skip_relocation"):
+            sha_line = f'  sha256 cellar: :any_skip_relocation, x86_64_linux: "{bottle["sha256"]}"'
         elif cellar:
             escaped_cellar = str(cellar).replace('"', '\\"')
             sha_line = f'  sha256 cellar: "{escaped_cellar}", x86_64_linux: "{bottle["sha256"]}"'
