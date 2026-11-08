@@ -562,6 +562,7 @@ jobs:
           PY
 
           release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
+          mkdir -p "$RUNNER_TEMP/Formula"
           python3 scripts/render-formula.py \
             --version "$VERSION" \
             --tag "$TAG" \
@@ -571,14 +572,14 @@ jobs:
             --source-archive "$source_asset" \
             --bottle-json "$bottle_json" \
             --bottle-root-url "$release_root" \
-            --output "$RUNNER_TEMP/vibepollo-app.rb"
+            --output "$RUNNER_TEMP/Formula/vibepollo-app.rb"
 
-          brew style --fix "$RUNNER_TEMP/vibepollo-app.rb"
+          brew style --fix "$RUNNER_TEMP/Formula/vibepollo-app.rb"
 
           # Audit the formula generated from trusted tap code before any release
           # asset is published. The build job never supplies executable formula
           # code to this write-enabled job.
-          cp "$RUNNER_TEMP/vibepollo-app.rb" "$tap_path/Formula/vibepollo-app.rb"
+          cp "$RUNNER_TEMP/Formula/vibepollo-app.rb" "$tap_path/Formula/vibepollo-app.rb"
           brew trust --formula Remagnad/vibepollo-homebrew/vibepollo-app
           brew audit --strict --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
@@ -648,7 +649,7 @@ jobs:
           fi
 
           mkdir -p Formula
-          cp "$RUNNER_TEMP/vibepollo-app.rb" Formula/vibepollo-app.rb
+          cp "$RUNNER_TEMP/Formula/vibepollo-app.rb" Formula/vibepollo-app.rb
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
           brew audit --strict --online --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
