@@ -145,10 +145,15 @@ __BOTTLE_BLOCK__
 
       # Homebrew builds libdbus with its own prefix-specific default system-bus path.
       # Point the Avahi client at the host bus, while respecting explicit user overrides.
-      vibepollo_binary = bin/"vibepollo"
-      odie "Vibepollo executable was not installed by CMake" unless vibepollo_binary.executable?
+      # CMake installs the real binary under its versioned name and makes
+      # bin/vibepollo a symlink. Move the real file, not the symlink.
+      versioned_binary = bin/"vibepollo-#{version}"
+      odie "Versioned Vibepollo executable was not installed by CMake" unless versioned_binary.executable?
+      vibepollo_link = bin/"vibepollo"
+      odie "Expected CMake to install bin/vibepollo as a symlink" unless vibepollo_link.symlink?
       libexec.mkpath
-      vibepollo_binary.rename(libexec/"vibepollo-bin")
+      versioned_binary.rename(libexec/"vibepollo-bin")
+      vibepollo_link.unlink
 
       (bin/"vibepollo").write <<~SH
         #!/bin/sh
