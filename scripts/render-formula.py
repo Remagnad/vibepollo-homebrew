@@ -31,6 +31,8 @@ __BOTTLE_BLOCK__
   depends_on "vulkan-headers" => :build
 
   depends_on "at-spi2-core"
+  # The Linux mDNS publisher loads libavahi-client dynamically at runtime.
+  depends_on "avahi"
   depends_on "cairo"
   depends_on "gdk-pixbuf"
   depends_on "gtk+3"

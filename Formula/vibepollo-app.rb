@@ -22,6 +22,8 @@ class VibepolloApp < Formula
   depends_on "vulkan-headers" => :build
 
   depends_on "at-spi2-core"
+  # The Linux mDNS publisher loads libavahi-client dynamically at runtime.
+  depends_on "avahi"
   depends_on "boost"
   depends_on "cairo"
   depends_on "curl"
