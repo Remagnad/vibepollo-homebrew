@@ -144,7 +144,7 @@ jobs:
           SOURCE_DATE_EPOCH="$(date -u --date="$RELEASE_PUBLISHED_AT" +%s)"
           source_archive="$PWD/dist/vibepollo-source-${{ needs.check-upstream.outputs.version }}.tar.gz"
 
-          scripts/prepare-source.sh "$TAG" "$COMMIT" "$source_archive"
+          bash scripts/prepare-source.sh "$TAG" "$COMMIT" "$source_archive"
           source_sha="$(sha256sum "$source_archive" | awk '{print $1}')"
           echo "source_archive=$source_archive" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
