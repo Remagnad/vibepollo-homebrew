@@ -245,6 +245,7 @@ def main() -> None:
     parser.add_argument("--source-url", required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--source-archive", required=True)
+    parser.add_argument("--ffmpeg-url")
     parser.add_argument("--bottle-json")
     parser.add_argument("--bottle-root-url")
     parser.add_argument("--output", required=True)
@@ -287,7 +288,7 @@ def main() -> None:
         "__UPSTREAM_COMMIT__": args.commit,
         "__SOURCE_URL__": args.source_url,
         "__SOURCE_SHA__": args.source_sha,
-        "__FFMPEG_URL__": ffmpeg["url"],
+        "__FFMPEG_URL__": args.ffmpeg_url or ffmpeg["url"],
         "__FFMPEG_SHA__": ffmpeg["sha256"],
         "__BOTTLE_BLOCK__": bottle_block.rstrip(),
     }
