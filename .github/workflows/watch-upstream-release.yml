@@ -165,6 +165,38 @@ jobs:
           brew test vibepollo-app
           brew linkage --test vibepollo-app
 
+      - name: Verify bottle JSON parser against Homebrew output format
+        run: |
+          set -Eeuo pipefail
+          cat > "$RUNNER_TEMP/test-bottle.json" <<'JSON'
+          {
+            "vibepollo-app": {
+              "formula": {"name": "vibepollo-app"},
+              "bottle": {
+                "root_url": "https://example.invalid",
+                "cellar": "/home/linuxbrew/.linuxbrew/Cellar",
+                "tags": {
+                  "x86_64_linux": {
+                    "local_filename": "vibepollo-app--9.9.9.x86_64_linux.bottle.tar.gz",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                }
+              }
+            }
+          }
+          JSON
+          python3 scripts/render-formula.py \
+            --version 9.9.9 \
+            --tag 9.9.9 \
+            --commit 0000000000000000000000000000000000000000 \
+            --source-url "https://example.invalid/source.tar.gz" \
+            --source-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --bottle-json "$RUNNER_TEMP/test-bottle.json" \
+            --bottle-root-url "https://example.invalid" \
+            --output "$RUNNER_TEMP/test-vibepollo-app.rb"
+          grep -F 'sha256 cellar: "/home/linuxbrew/.linuxbrew/Cellar", x86_64_linux: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
+            "$RUNNER_TEMP/test-vibepollo-app.rb"
+
       - name: Create Linux x86_64 bottle metadata
         run: |
           set -Eeuo pipefail
@@ -209,7 +241,7 @@ jobs:
 
           brew uninstall --force --ignore-dependencies vibepollo-app
 
-          python3 -m http.server 8765 --bind 127.0.0.1 > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
+          (cd dist && python3 -m http.server 8765 --bind 127.0.0.1) > "$RUNNER_TEMP/bottle-http.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in {1..20}; do
@@ -223,33 +255,6 @@ jobs:
           brew install --force-bottle --ignore-dependencies ./Formula/vibepollo-app.rb
           brew test vibepollo-app
           brew linkage --test vibepollo-app
-
-      - name: Render publishable formula and package manifest
-        env:
-          VERSION: ${{ needs.check-upstream.outputs.version }}
-          TAG: ${{ needs.check-upstream.outputs.tag }}
-          COMMIT: ${{ needs.check-upstream.outputs.commit }}
-          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
-        run: |
-          set -Eeuo pipefail
-          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
-          source_url="$release_root/vibepollo-source-$VERSION.tar.gz"
-
-          python3 scripts/render-formula.py \
-            --version "$VERSION" \
-            --tag "$TAG" \
-            --commit "$COMMIT" \
-            --source-url "$source_url" \
-            --source-sha "$SOURCE_SHA" \
-            --bottle-json dist/bottle.json \
-            --bottle-root-url "$release_root" \
-            --output dist/vibepollo-app.rb
-
-          cp dist/vibepollo-app.rb Formula/vibepollo-app.rb
-          (
-            cd dist
-            sha256sum "vibepollo-source-$VERSION.tar.gz" "$(cat bottle-filename.txt)" > SHA256SUMS
-          )
 
       - name: Upload verified source and bottle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -282,6 +287,81 @@ jobs:
           core: true
           cask: false
 
+      - name: Verify build artifact and render Formula in isolated publish job
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          TAG: ${{ needs.check-upstream.outputs.tag }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_asset="dist/vibepollo-source-$VERSION.tar.gz"
+          bottle_json="dist/bottle.json"
+          bottle_file="$(find dist -maxdepth 1 -type f -name 'vibepollo-app--*.bottle.tar.gz' -print -quit)"
+          test -s "$source_asset"
+          test -s "$bottle_json"
+          test -s "$bottle_file"
+
+          bottle_name="$(basename "$bottle_file")"
+          recorded_name="$(tr -d '[:space:]' < dist/bottle-filename.txt)"
+          if [[ "$bottle_name" != "$recorded_name" ]]; then
+            echo "::error::Bottle filename does not match the build manifest."
+            exit 1
+          fi
+
+          source_sha="$(sha256sum "$source_asset" | awk '{print $1}')"
+          bottle_sha="$(sha256sum "$bottle_file" | awk '{print $1}')"
+          python3 - "$bottle_json" "$bottle_sha" <<'PY'
+          import json
+          import re
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              raw = json.load(stream)
+
+          if isinstance(raw, dict) and "bottle" not in raw:
+              records = [value for value in raw.values() if isinstance(value, dict)]
+          elif isinstance(raw, list):
+              records = raw
+          else:
+              records = [raw]
+
+          expected = None
+          for record in records:
+              bottle = record.get("bottle", {})
+              entry = bottle.get("tags", {}).get("x86_64_linux")
+              if entry:
+                  expected = entry.get("sha256")
+                  break
+
+          actual = sys.argv[2]
+          if not expected or not re.fullmatch(r"[0-9a-f]{64}", expected):
+              raise SystemExit("Bottle JSON lacks a valid x86_64_linux SHA-256.")
+          if expected != actual:
+              raise SystemExit(f"Bottle digest mismatch: metadata={expected}, archive={actual}")
+          PY
+
+          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
+          python3 scripts/render-formula.py \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$COMMIT" \
+            --source-url "$release_root/vibepollo-source-$VERSION.tar.gz" \
+            --source-sha "$source_sha" \
+            --bottle-json "$bottle_json" \
+            --bottle-root-url "$release_root" \
+            --output "$RUNNER_TEMP/vibepollo-app.rb"
+
+          # Audit the formula generated from trusted tap code before any release
+          # asset is published. The build job never supplies executable formula
+          # code to this write-enabled job.
+          brew audit --strict --formula "$RUNNER_TEMP/vibepollo-app.rb"
+
+          (
+            cd dist
+            sha256sum "vibepollo-source-$VERSION.tar.gz" "$bottle_name" > SHA256SUMS
+          )
+
       - name: Publish source bundle and bottle
         env:
           GH_TOKEN: ${{ github.token }}
@@ -312,7 +392,7 @@ jobs:
           (cd dist && sha256sum --check SHA256SUMS)
 
           if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS dist/release-notes.md \
+            gh release upload "$release_tag" "$source_asset" "$bottle_asset" dist/bottle.json dist/SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
               --title "$release_title" --notes-file dist/release-notes.md
@@ -322,10 +402,27 @@ jobs:
               --notes-file dist/release-notes.md
           fi
 
-      - name: Audit final published Formula
+      - name: Rebase publication onto the latest main
         run: |
           set -Eeuo pipefail
-          cp dist/vibepollo-app.rb Formula/vibepollo-app.rb
+          git fetch origin main
+          git checkout -B main origin/main
+
+      - name: Audit and commit the final Formula
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          current="$(tr -d '[:space:]' < upstream-version)"
+          newest="$(printf '%s\\n%s\\n' "$current" "$VERSION" | sort -V)"
+          newest="$(printf '%s\\n' "$newest" | tail -n1)"
+          if [[ "$current" != "$VERSION" && "$newest" != "$VERSION" ]]; then
+            echo "main already contains a newer Vibepollo formula ($current); skipping downgrade."
+            exit 0
+          fi
+
+          mkdir -p Formula
+          cp "$RUNNER_TEMP/vibepollo-app.rb" Formula/vibepollo-app.rb
           brew audit --strict --online --formula Formula/vibepollo-app.rb
 
       - name: Commit the successful upstream version to main
