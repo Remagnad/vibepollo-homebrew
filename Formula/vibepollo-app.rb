@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "83a6ce7f3d253d837cd141e3f58227a304e74fc750a41ad653aa7ac686cf0b5b"
+  sha256 "3e8416c1f7bc68d09237c74147b389bdac14cff4e732413f1a01daecfe34f95d"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "5d0f2f79d83d75b0f8bbc996acf56ba78ccd4fd4823ec67f409e752f9108f534"
+    sha256 x86_64_linux: "d487df6278250b6f805ba58b9175442602feab17559797e62e2ff0c28bef7c4d"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -166,6 +166,16 @@ class VibepolloApp < Formula
             exit 126
             ;;
         esac
+        # GTK's icon theme does not normally search the Homebrew prefix.
+        # Expose packaged AppIndicator icons while preserving host icon paths.
+        xdg_data_dirs=${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
+        case ":$xdg_data_dirs:" in
+          *":$formula_prefix/share:"*) ;;
+          *) xdg_data_dirs="$formula_prefix/share:$xdg_data_dirs" ;;
+        esac
+        XDG_DATA_DIRS=$xdg_data_dirs
+        export XDG_DATA_DIRS
+
         exec "$formula_prefix/libexec/vibepollo-bin" "$@"
       SH
       chmod 0755, bin/"vibepollo"
@@ -201,6 +211,7 @@ class VibepolloApp < Formula
     launcher_stub.write <<~SH
       #!/bin/sh
       printf '%s\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
+      printf '%s\n' "${XDG_DATA_DIRS:-unset}"
       printf '%s\n' "$@"
     SH
     launcher_stub.chmod(0755)
@@ -211,24 +222,46 @@ class VibepolloApp < Formula
     ].find { |socket| File.socket?(socket) }
     expected_default_bus = host_bus_socket ? "unix:path=#{host_bus_socket}" : "unset"
     default_env_output = Utils.safe_popen_read(
-      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
+      launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
-    assert_equal "#{expected_default_bus}
---wrapper-test
-argument with spaces
-", default_env_output
+    expected_default_xdg = "#{launcher_test_prefix}/share:/usr/local/share:/usr/share"
+    expected_default_output = [
+      "#{expected_default_bus}
+",
+      "#{expected_default_xdg}
+",
+      "--wrapper-test
+",
+      "argument with spaces
+",
+    ].join
+    assert_equal expected_default_output, default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
+    custom_xdg = "/custom/share:/usr/share"
     custom_env_output = Utils.safe_popen_read(
-      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", launcher_test.to_s, "--wrapper-test"
+      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", "XDG_DATA_DIRS=#{custom_xdg}",
+      launcher_test.to_s, "--wrapper-test"
     )
-    assert_equal "#{custom_bus}
---wrapper-test
-", custom_env_output
+    expected_custom_output = [
+      "#{custom_bus}
+",
+      "#{launcher_test_prefix}/share:#{custom_xdg}
+",
+      "--wrapper-test
+",
+    ].join
+    assert_equal expected_custom_output, custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
     assert_path_exists share/"applications/vibepollo-tray.desktop"
+    assert_path_exists share/"icons/hicolor/scalable/apps/io.github.Nonary.vibepollo.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-tray.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-playing.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-pausing.svg"
+    assert_path_exists share/"icons/hicolor/scalable/status/io.github.Nonary.vibepollo-locked.svg"
     tray_desktop = (share/"applications/vibepollo-tray.desktop").read
     assert_match "Exec=#{opt_bin}/vibepollo-tray", tray_desktop
     assert_match "Icon=io.github.Nonary.vibepollo", tray_desktop
