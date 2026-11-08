@@ -79,7 +79,7 @@ __BOTTLE_BLOCK__
     system python, "-c", "import jinja2"
 
     resource("ffmpeg").stage do
-      ffmpeg_prepared_binaries = Pathname.pwd/"ffmpeg"
+      ffmpeg_prepared_binaries = Pathname.pwd
       unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file? &&
              (ffmpeg_prepared_binaries/"include").directory?
         odie "The pinned FFmpeg resource has an unexpected archive layout"
