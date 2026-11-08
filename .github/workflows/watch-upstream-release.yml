@@ -15,6 +15,7 @@ on:
     paths:
       - ".github/workflows/watch-upstream-release.yml"
       - "scripts/**"
+      - "Formula/**"
 
 permissions:
   contents: read

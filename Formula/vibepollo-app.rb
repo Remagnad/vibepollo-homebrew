@@ -16,6 +16,18 @@ class VibepolloApp < Formula
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
 
+  depends_on "at-spi2-core"
+  depends_on "cairo"
+  depends_on "gdk-pixbuf"
+  depends_on "gtk+3"
+  depends_on "harfbuzz"
+  depends_on "jpeg-turbo"
+  depends_on "libdbusmenu"
+  depends_on "libice"
+  depends_on "libpng"
+  depends_on "libsm"
+  depends_on "pango"
+  depends_on "webp"
   depends_on "boost"
   depends_on "curl"
   depends_on "gcc@14"
