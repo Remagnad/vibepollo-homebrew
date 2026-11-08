@@ -99,7 +99,7 @@ jobs:
           if [[ "$newest" == "$version" && ( "$version" != "$current" || "$commit" != "$processed_commit" ) ]]; then
             updated=true
           fi
-          force_rebuild="${{ inputs.rebuild }}"
+          force_rebuild="${{ inputs.rebuild || github.event_name == 'push' }}"
           if [[ "$force_rebuild" == "true" && "$newest" == "$version" ]]; then
             updated=true
           fi
@@ -301,6 +301,9 @@ jobs:
             --source-archive "$SOURCE_ARCHIVE" \
             --ffmpeg-url "http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz" \
             --output Formula/vibepollo-app.rb
+
+      - name: Auto-fix generated Formula style
+        run: brew style --fix Formula/vibepollo-app.rb
 
       - name: Register the working tree as a local Homebrew tap
         shell: bash
@@ -568,6 +571,8 @@ jobs:
             --bottle-json "$bottle_json" \
             --bottle-root-url "$release_root" \
             --output "$RUNNER_TEMP/vibepollo-app.rb"
+
+          brew style --fix "$RUNNER_TEMP/vibepollo-app.rb"
 
           # Audit the formula generated from trusted tap code before any release
           # asset is published. The build job never supplies executable formula

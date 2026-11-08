@@ -2,7 +2,7 @@
 
 Homebrew formulae for Linux x86_64.
 
-The initial package is `vibepollo-app`: the application, its runtime assets and the Linux capture backends. It deliberately does **not** install machine-wide systemd services, udev/sysusers rules, privileged helpers or kernel modules. Those integrations are reserved for a separate Cask/DRM phase.
+The initial package is `vibepollo-app`: the application, runtime assets, Linux capture backends, native AppIndicator tray and unprivileged Python `vibepollo-tray` companion. The companion and its desktop launcher stay inside the Cellar; login autostart is reserved for the Cask. The Formula deliberately does **not** install machine-wide systemd services, udev/sysusers rules, privileged helpers or kernel modules. Those integrations are reserved for a separate Cask/DRM phase.
 
 ## Install
 

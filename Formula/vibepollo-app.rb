@@ -5,11 +5,6 @@ class VibepolloApp < Formula
   sha256 "6f56390d56c5d0c9d0704705a7beca116686928775c9049382dfb544214c5482"
   license "GPL-3.0-only"
 
-  bottle do
-    root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "7032caea063c40197123ae41f20f14cfe0e5ca6c157385d9dfe79d5cdddefd8d"
-  end
-
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
@@ -25,9 +20,11 @@ class VibepolloApp < Formula
   depends_on "curl"
   depends_on "gcc@14"
   depends_on "glib"
+  depends_on "libayatana-appindicator"
   depends_on "libcap"
   depends_on "libdrm"
   depends_on "libevdev"
+  depends_on "libnotify"
   depends_on "libva"
   depends_on "libx11"
   depends_on "libxext"
@@ -39,6 +36,7 @@ class VibepolloApp < Formula
   depends_on "opus"
   depends_on "pipewire"
   depends_on "pulseaudio"
+  depends_on "pyside"
   depends_on "sqlite"
   depends_on "vulkan-loader"
   depends_on "wayland"
@@ -90,10 +88,11 @@ class VibepolloApp < Formula
         "-DPYTHON_EXECUTABLE=#{python}",
         "-DGLAD_SKIP_PIP_INSTALL=ON",
         "-DSUNSHINE_BUILD_HOMEBREW=ON",
+        "-DSUNSHINE_HOMEBREW_TRAY_EXECUTABLE=#{opt_bin}/vibepollo-tray",
         "-DFFMPEG_PREPARED_BINARIES=#{ffmpeg_prepared_binaries}",
         "-DSUNSHINE_ENABLE_CUDA=OFF",
         "-DSUNSHINE_ENABLE_DRM=OFF",
-        "-DSUNSHINE_ENABLE_TRAY=OFF",
+        "-DSUNSHINE_ENABLE_TRAY=ON",
         "-DSUNSHINE_ENABLE_PYROWAVE=ON",
         "-DSUNSHINE_ENABLE_VAAPI=ON",
         "-DSUNSHINE_ENABLE_VULKAN=ON",
@@ -115,6 +114,10 @@ class VibepolloApp < Formula
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
       system "cmake", "--build", buildpath/"build", "--parallel"
       system "cmake", "--install", buildpath/"build"
+
+      tray_script = bin/"vibepollo-tray"
+      odie "Homebrew tray companion was not installed by CMake" unless tray_script.executable?
+      inreplace tray_script, "#!/usr/bin/python3", "#!#{Formula["pyside"].python3}"
     end
   end
 
@@ -123,7 +126,8 @@ class VibepolloApp < Formula
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
       or kernel modules. Managed virtual displays also require the separate
-      driver and machine-integration packages.
+      driver and machine-integration packages. The Python tray companion is
+      included; login autostart is reserved for the Cask integration.
     EOS
   end
 
@@ -131,5 +135,9 @@ class VibepolloApp < Formula
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
+    assert_path_exists bin/"vibepollo-tray"
+    assert_path_exists share/"applications/vibepollo-tray.desktop"
+    assert_match "usage:", shell_output("#{bin}/vibepollo-tray --help")
+    system Formula["pyside"].python3, "-c", "import PySide6.QtWidgets"
   end
 end
