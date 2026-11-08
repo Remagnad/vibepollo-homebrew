@@ -66,9 +66,12 @@ jobs:
             exit 1
           fi
 
+          # A queued workflow may have started from an older main commit.
+          # Compare against the live branch, not only the triggering snapshot.
+          git fetch --quiet origin main
           current="0.0.0"
-          if [[ -f upstream-version ]]; then
-            current="$(tr -d '[:space:]' < upstream-version)"
+          if git cat-file -e origin/main:upstream-version 2>/dev/null; then
+            current="$(git show origin/main:upstream-version | tr -d '[:space:]')"
           fi
           if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid upstream-version state: $current"
@@ -153,12 +156,30 @@ jobs:
             --version "$VERSION" \
             --tag "$TAG" \
             --commit "$COMMIT" \
-            --source-url "file://$SOURCE_ARCHIVE" \
+            --source-url "http://127.0.0.1:8766/vibepollo-source-$VERSION.tar.gz" \
             --source-sha "$SOURCE_SHA" \
             --output Formula/vibepollo-app.rb
 
       - name: Build formula with Homebrew
-        run: brew install --build-bottle --verbose ./Formula/vibepollo-app.rb
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m http.server 8766 --directory "$PWD/dist" --bind 127.0.0.1 \
+            > "$RUNNER_TEMP/source-http.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8766/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent \
+            "http://127.0.0.1:8766/vibepollo-source-${{ needs.check-upstream.outputs.version }}.tar.gz" \
+            -o /dev/null
+
+          brew install --build-bottle --verbose ./Formula/vibepollo-app.rb
 
       - name: Test source installation and dynamic linkage
         run: |
@@ -414,9 +435,12 @@ jobs:
         run: |
           set -Eeuo pipefail
           current="$(tr -d '[:space:]' < upstream-version)"
-          newest="$(printf '%s\\n%s\\n' "$current" "$VERSION" | sort -V)"
-          newest="$(printf '%s\\n' "$newest" | tail -n1)"
-          if [[ "$current" != "$VERSION" && "$newest" != "$VERSION" ]]; then
+          if [[ "$current" == "$VERSION" ]]; then
+            echo "main already contains Vibepollo $VERSION; no duplicate commit is needed."
+            exit 0
+          fi
+          newest="$(printf '%s\\n%s\\n' "$current" "$VERSION" | sort -V | tail -n1)"
+          if [[ "$newest" != "$VERSION" ]]; then
             echo "main already contains a newer Vibepollo formula ($current); skipping downgrade."
             exit 0
           fi
