@@ -91,6 +91,8 @@ endif()""",
             RENAME "${PROJECT_FQDN}.svg")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FQDN}.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/NOTICE"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/licenses/vibepollo")
     return()
 endif()
 
