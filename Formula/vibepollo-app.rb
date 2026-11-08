@@ -134,6 +134,25 @@ class VibepolloApp < Formula
       system "cmake", "--build", buildpath/"build", "--parallel"
       system "cmake", "--install", buildpath/"build"
 
+      # Route the Homebrew Avahi client to the host's system D-Bus socket.
+      # Keep the compiled application private and expose a small environment wrapper.
+      vibepollo_binary = bin/"vibepollo"
+      odie "Vibepollo executable was not installed by CMake" unless vibepollo_binary.executable?
+      libexec.mkpath
+      vibepollo_binary.rename(libexec/"vibepollo-bin")
+
+      (bin/"vibepollo").write <<~SH
+        #!/bin/sh
+        if [ -z "${DBUS_SYSTEM_BUS_ADDRESS:-}" ]; then
+          export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket"
+        fi
+        launcher_path="$(readlink -f -- "$0")"
+        formula_prefix="$(dirname -- "$(dirname -- "$launcher_path")")"
+        exec "$formula_prefix/libexec/vibepollo-bin" "$@"
+      SH
+      chmod 0755, bin/"vibepollo"
+
+
       tray_script = bin/"vibepollo-tray"
       odie "Homebrew tray companion was not installed by CMake" unless tray_script.executable?
       inreplace tray_script, "#!/usr/bin/python3", "#!#{Formula["pyside"].python3}"
@@ -152,6 +171,34 @@ class VibepolloApp < Formula
 
   test do
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
+    assert_path_exists libexec/"vibepollo-bin"
+
+    # Verify the launcher supplies the host D-Bus address only as a default,
+    # preserves a caller-provided address, and forwards command-line arguments.
+    launcher_test_prefix = testpath/"launcher-test"
+    (launcher_test_prefix/"bin").mkpath
+    (launcher_test_prefix/"libexec").mkpath
+    launcher_test = launcher_test_prefix/"bin/vibepollo"
+    FileUtils.cp bin/"vibepollo", launcher_test
+    launcher_test.chmod(0755)
+    launcher_stub = launcher_test_prefix/"libexec/vibepollo-bin"
+    launcher_stub.write <<~SH
+      #!/bin/sh
+      printf '%s\\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
+      printf '%s\\n' "$@"
+    SH
+    launcher_stub.chmod(0755)
+
+    default_env_output = Utils.safe_popen_read(
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test"
+    )
+    assert_equal "unix:path=/run/dbus/system_bus_socket\\n--wrapper-test\\n", default_env_output
+
+    custom_bus = "unix:path=/custom/system_bus_socket"
+    custom_env_output = Utils.safe_popen_read(
+      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", launcher_test.to_s, "--wrapper-test"
+    )
+    assert_equal "#{custom_bus}\\n--wrapper-test\\n", custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
