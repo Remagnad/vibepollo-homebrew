@@ -45,7 +45,6 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "node" => :build
   depends_on "nlohmann-json" => :build
   depends_on "pkgconf" => :build
-  depends_on "python@3.14" => :build
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
 
