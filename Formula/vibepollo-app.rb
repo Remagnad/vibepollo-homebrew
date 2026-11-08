@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "fcd1968a3e3512c0098d36519aa8d24ac6ee24832eba653b9e0010ef84744552"
+    sha256 x86_64_linux: "6a4ffd31bc86c3520fdfff606f0cdd6f0023f0fc08ae0e6af7c28a9cca621d81"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -200,8 +200,8 @@ class VibepolloApp < Formula
     launcher_stub = launcher_test_prefix/"libexec/vibepollo-bin"
     launcher_stub.write <<~SH
       #!/bin/sh
-      printf '%s\\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
-      printf '%s\\n' "$@"
+      printf '%s\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
+      printf '%s\n' "$@"
     SH
     launcher_stub.chmod(0755)
 
@@ -213,13 +213,18 @@ class VibepolloApp < Formula
     default_env_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
-    assert_equal "#{expected_default_bus}\n--wrapper-test\nargument with spaces\n", default_env_output
+    assert_equal "#{expected_default_bus}
+--wrapper-test
+argument with spaces
+", default_env_output
 
     custom_bus = "unix:path=/custom/system_bus_socket"
     custom_env_output = Utils.safe_popen_read(
       "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", launcher_test.to_s, "--wrapper-test"
     )
-    assert_equal "#{custom_bus}\n--wrapper-test\n", custom_env_output
+    assert_equal "#{custom_bus}
+--wrapper-test
+", custom_env_output
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists bin/"vibepollo-tray"
