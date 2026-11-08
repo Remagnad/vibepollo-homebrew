@@ -43,6 +43,7 @@ submodules=(
     third-party/inputtino
     third-party/libdisplaydevice
     third-party/libvirtualdisplay
+    third-party/libvirtualgamepad
     third-party/moonlight-common-c
     third-party/nanors
     third-party/nv-codec-headers
@@ -64,6 +65,13 @@ for path in "${submodules[@]}"; do
     printf '%s %s\n' "$path" "$actual"
 done
 echo "::endgroup::"
+
+# inputtino's PS5 UHID implementation includes this submodule's shared UAPI
+# header even when the privileged kernel module itself is not built/installed.
+test -f "$source_dir/third-party/libvirtualgamepad/linux/vibeshine-ds5/vibeshine_ds5_uapi.h" || {
+    echo "Missing libvirtualgamepad DS5 UAPI header after submodule checkout." >&2
+    exit 1
+}
 
 echo "::group::Fetch required nested moonlight-common-c submodules"
 git -C "$source_dir/third-party/moonlight-common-c" \
