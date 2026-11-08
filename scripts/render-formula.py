@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
+import tarfile
 
 
 FORMULA_TEMPLATE = '''class VibepolloApp < Formula
@@ -54,6 +56,12 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   UPSTREAM_TAG = "__UPSTREAM_TAG__"
   UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__"
 
+  # Homebrew fetches this resource before entering the build sandbox.
+  resource "ffmpeg" do
+    url "__FFMPEG_URL__"
+    sha256 "__FFMPEG_SHA__"
+  end
+
 __BOTTLE_BLOCK__
   def install
     ENV["TAG"] = UPSTREAM_TAG
@@ -70,42 +78,51 @@ __BOTTLE_BLOCK__
     odie "Jinja-enabled Python interpreter is missing: #{python}" unless File.executable?(python)
     system python, "-c", "import jinja2"
 
-    cmake_args = std_cmake_args + [
-      "-G", "Ninja",
-      "-DCMAKE_C_COMPILER=#{c_compiler}",
-      "-DCMAKE_CXX_COMPILER=#{cxx_compiler}",
-      "-DCMAKE_INSTALL_BINDIR=bin",
-      "-DCMAKE_INSTALL_LIBDIR=lib",
-      "-DCMAKE_INSTALL_DATADIR=share",
-      "-DSUNSHINE_ASSETS_DIR=share/vibepollo",
-      "-DPython_EXECUTABLE=#{python}",
-      "-DPYTHON_EXECUTABLE=#{python}",
-      "-DGLAD_SKIP_PIP_INSTALL=ON",
-      "-DSUNSHINE_BUILD_HOMEBREW=ON",
-      "-DSUNSHINE_ENABLE_CUDA=OFF",
-      "-DSUNSHINE_ENABLE_DRM=OFF",
-      "-DSUNSHINE_ENABLE_TRAY=OFF",
-      "-DSUNSHINE_ENABLE_PYROWAVE=ON",
-      "-DSUNSHINE_ENABLE_VAAPI=ON",
-      "-DSUNSHINE_ENABLE_VULKAN=ON",
-      "-DSUNSHINE_ENABLE_WAYLAND=ON",
-      "-DSUNSHINE_ENABLE_X11=ON",
-      "-DSUNSHINE_ENABLE_KWIN=ON",
-      "-DSUNSHINE_ENABLE_PORTAL=ON",
-      "-DSUNSHINE_ENABLE_GAMESCOPE=ON",
-      "-DSUNSHINE_SYSTEM_VULKAN_HEADERS=ON",
-      "-DBUILD_TESTS=OFF",
-      "-DBUILD_DOCS=OFF",
-      "-DBOOST_USE_STATIC=OFF",
-      "-DBUILD_VIRTUALDISPLAY_TOOLS=OFF",
-      "-DBUILD_VIRTUALDISPLAY_PROBE=OFF",
-      "-DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF",
-      "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF",
-    ]
+    resource("ffmpeg").stage do
+      ffmpeg_prepared_binaries = Pathname.pwd/"ffmpeg"
+      unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file? &&
+             (ffmpeg_prepared_binaries/"include").directory?
+        odie "The pinned FFmpeg resource has an unexpected archive layout"
+      end
 
-    system "cmake", "-S", ".", "-B", "build", *cmake_args
-    system "cmake", "--build", "build", "--parallel"
-    system "cmake", "--install", "build"
+      cmake_args = std_cmake_args + [
+        "-G", "Ninja",
+        "-DCMAKE_C_COMPILER=#{c_compiler}",
+        "-DCMAKE_CXX_COMPILER=#{cxx_compiler}",
+        "-DCMAKE_INSTALL_BINDIR=bin",
+        "-DCMAKE_INSTALL_LIBDIR=lib",
+        "-DCMAKE_INSTALL_DATADIR=share",
+        "-DSUNSHINE_ASSETS_DIR=share/vibepollo",
+        "-DPython_EXECUTABLE=#{python}",
+        "-DPYTHON_EXECUTABLE=#{python}",
+        "-DGLAD_SKIP_PIP_INSTALL=ON",
+        "-DSUNSHINE_BUILD_HOMEBREW=ON",
+        "-DFFMPEG_PREPARED_BINARIES=#{ffmpeg_prepared_binaries}",
+        "-DSUNSHINE_ENABLE_CUDA=OFF",
+        "-DSUNSHINE_ENABLE_DRM=OFF",
+        "-DSUNSHINE_ENABLE_TRAY=OFF",
+        "-DSUNSHINE_ENABLE_PYROWAVE=ON",
+        "-DSUNSHINE_ENABLE_VAAPI=ON",
+        "-DSUNSHINE_ENABLE_VULKAN=ON",
+        "-DSUNSHINE_ENABLE_WAYLAND=ON",
+        "-DSUNSHINE_ENABLE_X11=ON",
+        "-DSUNSHINE_ENABLE_KWIN=ON",
+        "-DSUNSHINE_ENABLE_PORTAL=ON",
+        "-DSUNSHINE_ENABLE_GAMESCOPE=ON",
+        "-DSUNSHINE_SYSTEM_VULKAN_HEADERS=ON",
+        "-DBUILD_TESTS=OFF",
+        "-DBUILD_DOCS=OFF",
+        "-DBOOST_USE_STATIC=OFF",
+        "-DBUILD_VIRTUALDISPLAY_TOOLS=OFF",
+        "-DBUILD_VIRTUALDISPLAY_PROBE=OFF",
+        "-DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF",
+        "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF",
+      ]
+
+      system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
+      system "cmake", "--build", buildpath/"build", "--parallel"
+      system "cmake", "--install", buildpath/"build"
+    end
   end
 
   def caveats
@@ -124,6 +141,165 @@ __BOTTLE_BLOCK__
   end
 end
 '''
+
+
+def load_ffmpeg_pin(source_archive: pathlib.Path) -> dict[str, str]:
+    try:
+        with tarfile.open(source_archive, "r:gz") as bundle:
+            matches = [
+                member for member in bundle.getmembers()
+                if member.isfile()
+                and member.name.endswith("/cmake/dependencies/ffmpeg-release.cmake")
+            ]
+            if len(matches) != 1:
+                raise SystemExit("Source archive must contain exactly one ffmpeg-release.cmake")
+            source_file = bundle.extractfile(matches[0])
+            if source_file is None:
+                raise SystemExit("Could not read ffmpeg-release.cmake from source archive.")
+            cmake_source = source_file.read().decode("utf-8")
+    except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"Could not inspect upstream FFmpeg pin: {exc}") from exc
+
+    def cmake_string(variable: str) -> str:
+        values = re.findall(
+            rf'^\s*set\({re.escape(variable)}\s+"([^"]+)"\)\s*    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    # Current `brew bottle --json` output is keyed by formula full name:
+    # {"vibepollo-app": {"formula": {...}, "bottle": {"cellar": "...",
+    # "tags": {"x86_64_linux": {"sha256": "...", ...}}}}}
+    if isinstance(raw, dict) and "bottle" not in raw:
+        records = [value for value in raw.values() if isinstance(value, dict)]
+    elif isinstance(raw, list):
+        records = raw
+    else:
+        records = [raw]
+
+    for record in records:
+        formula = record.get("formula", {})
+        if formula and formula.get("name") != "vibepollo-app":
+            continue
+
+        bottle = record.get("bottle", {})
+        tags = bottle.get("tags", {})
+        entry = tags.get("x86_64_linux") if isinstance(tags, dict) else None
+
+        # Retain support for older bottle JSON shapes for easier local testing.
+        if entry is None:
+            stable = bottle.get("stable", bottle)
+            files = stable.get("files", stable.get("tags", {}))
+            if isinstance(files, dict):
+                entry = files.get("x86_64_linux")
+                if entry is None:
+                    entry = next(
+                        (value for key, value in files.items() if "x86_64_linux" in key),
+                        None,
+                    )
+
+        if entry:
+            sha = entry.get("sha256")
+            if not sha or not __import__("re").fullmatch(r"[0-9a-f]{64}", sha):
+                raise SystemExit("Bottle JSON has no valid x86_64_linux SHA-256.")
+
+            cellar = entry.get("cellar") or bottle.get("cellar")
+            if cellar is not None:
+                if not isinstance(cellar, str):
+                    raise SystemExit("Bottle JSON cellar metadata must be a string.")
+                if cellar not in ("any", ":any", "any_skip_relocation", ":any_skip_relocation"):
+                    if not __import__("re").fullmatch(r"/[A-Za-z0-9_./+-]+", cellar):
+                        raise SystemExit(f"Unsafe or unsupported bottle cellar path: {cellar!r}")
+
+            return {"sha256": sha, "cellar": cellar}
+
+    raise SystemExit("Could not find the x86_64_linux bottle metadata in brew bottle JSON.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--commit", required=True)
+    parser.add_argument("--source-url", required=True)
+    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--source-archive", required=True)
+    parser.add_argument("--bottle-json")
+    parser.add_argument("--bottle-root-url")
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    if not __import__("re").fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
+        raise SystemExit(f"Unsupported stable version: {args.version}")
+    if not __import__("re").fullmatch(r"[0-9a-f]{40}", args.commit):
+        raise SystemExit(f"Invalid upstream commit SHA: {args.commit}")
+    if not __import__("re").fullmatch(r"[0-9a-f]{64}", args.source_sha):
+        raise SystemExit("Invalid source bundle SHA-256.")
+
+    ffmpeg = load_ffmpeg_pin(pathlib.Path(args.source_archive))
+
+    bottle_block = ""
+    if args.bottle_json:
+        if not args.bottle_root_url:
+            raise SystemExit("--bottle-root-url is required with --bottle-json")
+        bottle = load_bottle(pathlib.Path(args.bottle_json))
+        cellar = bottle["cellar"]
+        if cellar in ("any", ":any"):
+            sha_line = f'  sha256 cellar: :any, x86_64_linux: "{bottle["sha256"]}"'
+        elif cellar in ("any_skip_relocation", ":any_skip_relocation"):
+            sha_line = f'  sha256 cellar: :any_skip_relocation, x86_64_linux: "{bottle["sha256"]}"'
+        elif cellar:
+            escaped_cellar = str(cellar).replace('"', '\\"')
+            sha_line = f'  sha256 cellar: "{escaped_cellar}", x86_64_linux: "{bottle["sha256"]}"'
+        else:
+            sha_line = f'  sha256 x86_64_linux: "{bottle["sha256"]}"'
+        bottle_block = (
+            "  bottle do\n"
+            f'    root_url "{args.bottle_root_url.rstrip("/")}"\n'
+            f"{sha_line}\n"
+            "  end\n"
+        )
+
+    replacements = {
+        "__VERSION__": args.version,
+        "__UPSTREAM_TAG__": args.tag,
+        "__UPSTREAM_COMMIT__": args.commit,
+        "__SOURCE_URL__": args.source_url,
+        "__SOURCE_SHA__": args.source_sha,
+        "__FFMPEG_URL__": ffmpeg["url"],
+        "__FFMPEG_SHA__": ffmpeg["sha256"],
+        "__BOTTLE_BLOCK__": bottle_block.rstrip(),
+    }
+    rendered = FORMULA_TEMPLATE
+    for marker, value in replacements.items():
+        rendered = rendered.replace(marker, value)
+    output = pathlib.Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered, encoding="utf-8")
+    print(f"Rendered {output}")
+
+
+if __name__ == "__main__":
+    main()
+,
+            cmake_source,
+            flags=re.MULTILINE,
+        )
+        if not values:
+            raise SystemExit(f"Upstream FFmpeg pin is missing {variable}.")
+        return values[-1]
+
+    repository = cmake_string("FFMPEG_GITHUB_REPO")
+    tag = cmake_string("FFMPEG_RELEASE_TAG")
+    sha256 = cmake_string("FFMPEG_SHA256_Linux_x86_64")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise SystemExit(f"Unsafe upstream FFmpeg repository: {repository!r}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", tag):
+        raise SystemExit(f"Unsafe upstream FFmpeg release tag: {tag!r}")
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise SystemExit("Upstream FFmpeg pin has an invalid Linux x86_64 SHA-256.")
+
+    return {
+        "url": f"https://github.com/{repository}/releases/download/{tag}/Linux-x86_64-ffmpeg.tar.gz",
+        "sha256": sha256,
+    }
 
 
 def load_bottle(path: pathlib.Path) -> dict:
