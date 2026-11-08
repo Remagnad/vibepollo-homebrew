@@ -13,18 +13,25 @@ import tarfile
 FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
-  license "GPL-3.0-only"
   url "__SOURCE_URL__"
   sha256 "__SOURCE_SHA__"
+  license "GPL-3.0-only"
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
-  depends_on "boost"
   depends_on "cmake" => :build
+  depends_on "jinja2-cli" => :build
+  depends_on "ninja" => :build
+  depends_on "node" => :build
+  depends_on "nlohmann-json" => :build
+  depends_on "pkgconf" => :build
+  depends_on "shaderc" => :build
+  depends_on "vulkan-headers" => :build
+
+  depends_on "boost"
   depends_on "curl"
   depends_on "gcc@14"
   depends_on "glib"
-  depends_on "jinja2-cli" => :build
   depends_on "libcap"
   depends_on "libdrm"
   depends_on "libevdev"
@@ -34,18 +41,12 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "libxrandr"
   depends_on "mesa"
   depends_on "miniupnpc"
-  depends_on "ninja" => :build
-  depends_on "node" => :build
-  depends_on "nlohmann-json" => :build
   depends_on "numactl"
   depends_on "openssl@3"
   depends_on "opus"
   depends_on "pipewire"
-  depends_on "pkgconf" => :build
   depends_on "pulseaudio"
-  depends_on "shaderc" => :build
   depends_on "sqlite"
-  depends_on "vulkan-headers" => :build
   depends_on "vulkan-loader"
   depends_on "wayland"
   depends_on "zlib-ng-compat"
