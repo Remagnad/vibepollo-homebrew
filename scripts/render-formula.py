@@ -14,17 +14,17 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   license "GPL-3.0-only"
-  version "__VERSION__"
   url "__SOURCE_URL__"
   sha256 "__SOURCE_SHA__"
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
-  depends_on "gcc@14"
-
   depends_on "boost"
+  depends_on "cmake" => :build
   depends_on "curl"
+  depends_on "gcc@14"
   depends_on "glib"
+  depends_on "jinja2-cli" => :build
   depends_on "libcap"
   depends_on "libdrm"
   depends_on "libevdev"
@@ -32,30 +32,27 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "libx11"
   depends_on "libxext"
   depends_on "libxrandr"
-  depends_on "miniupnpc"
   depends_on "mesa"
+  depends_on "miniupnpc"
+  depends_on "ninja" => :build
+  depends_on "node" => :build
+  depends_on "nlohmann-json" => :build
   depends_on "numactl"
   depends_on "openssl@3"
   depends_on "opus"
   depends_on "pipewire"
+  depends_on "pkgconf" => :build
   depends_on "pulseaudio"
+  depends_on "shaderc" => :build
   depends_on "sqlite"
+  depends_on "vulkan-headers" => :build
   depends_on "vulkan-loader"
   depends_on "wayland"
   depends_on "zlib-ng-compat"
 
-  depends_on "cmake" => :build
-  depends_on "jinja2-cli" => :build
-  depends_on "ninja" => :build
-  depends_on "node" => :build
-  depends_on "nlohmann-json" => :build
-  depends_on "pkgconf" => :build
-  depends_on "shaderc" => :build
-  depends_on "vulkan-headers" => :build
-
   # These values are generated from the exact GitHub release tag and commit.
-  UPSTREAM_TAG = "__UPSTREAM_TAG__"
-  UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__"
+  UPSTREAM_TAG = "__UPSTREAM_TAG__".freeze
+  UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__".freeze
 
   # Homebrew fetches this resource before entering the build sandbox.
   resource "ffmpeg" do
@@ -69,11 +66,11 @@ __BOTTLE_BLOCK__
     ENV["COMMIT"] = UPSTREAM_COMMIT
     ENV["BUILD_VERSION"] = version.to_s
 
-    gcc_bin = Formula["gcc@14"].opt_bin
+    gcc_bin = formula_opt_bin("gcc@14")
     c_compiler = gcc_bin/"gcc-14"
     cxx_compiler = gcc_bin/"g++-14"
 
-    jinja_cli = Formula["jinja2-cli"].opt_bin/"jinja2"
+    jinja_cli = formula_opt_bin("jinja2-cli")/"jinja2"
     python = Utils.safe_popen_read("head", "-n1", jinja_cli).strip.delete_prefix("#!")
     odie "Could not determine the Jinja-enabled Python interpreter from jinja2-cli" if python.empty?
     odie "Jinja-enabled Python interpreter is missing: #{python}" unless File.executable?(python)
@@ -81,10 +78,10 @@ __BOTTLE_BLOCK__
 
     resource("ffmpeg").stage do
       ffmpeg_prepared_binaries = Pathname.pwd
-      unless (ffmpeg_prepared_binaries/"lib/libavcodec.a").file? &&
-             (ffmpeg_prepared_binaries/"include").directory?
-        odie "The pinned FFmpeg resource has an unexpected archive layout"
-      end
+      odie "The pinned FFmpeg resource is missing libavcodec.a" unless
+        (ffmpeg_prepared_binaries/"lib/libavcodec.a").file?
+      odie "The pinned FFmpeg resource is missing its include directory" unless
+        (ffmpeg_prepared_binaries/"include").directory?
 
       cmake_args = std_cmake_args + [
         "-G", "Ninja",
@@ -117,7 +114,7 @@ __BOTTLE_BLOCK__
         "-DBUILD_VIRTUALDISPLAY_TOOLS=OFF",
         "-DBUILD_VIRTUALDISPLAY_PROBE=OFF",
         "-DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF",
-        "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF",
+        "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF"
       ]
 
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
@@ -137,8 +134,8 @@ __BOTTLE_BLOCK__
 
   test do
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
-    assert_predicate share/"vibepollo/web/index.html", :exist?
-    assert_predicate share/"vibepollo/web/v2/index.html", :exist?
+    assert_path_exists share/"vibepollo/web/index.html"
+    assert_path_exists share/"vibepollo/web/v2/index.html"
   end
 end
 '''
@@ -225,15 +222,9 @@ def load_bottle(path: pathlib.Path) -> dict:
             if not sha or not __import__("re").fullmatch(r"[0-9a-f]{64}", sha):
                 raise SystemExit("Bottle JSON has no valid x86_64_linux SHA-256.")
 
-            cellar = entry.get("cellar") or bottle.get("cellar")
-            if cellar is not None:
-                if not isinstance(cellar, str):
-                    raise SystemExit("Bottle JSON cellar metadata must be a string.")
-                if cellar not in ("any", ":any", "any_skip_relocation", ":any_skip_relocation"):
-                    if not __import__("re").fullmatch(r"/[A-Za-z0-9_./+-]+", cellar):
-                        raise SystemExit(f"Unsafe or unsupported bottle cellar path: {cellar!r}")
-
-            return {"sha256": sha, "cellar": cellar}
+            # Match the bottle stanza emitted by brew bottle --json.
+            # Never bake the builder's absolute Homebrew prefix into the formula.
+            return {"sha256": sha}
 
     raise SystemExit("Could not find the x86_64_linux bottle metadata in brew bottle JSON.")
 
@@ -266,16 +257,7 @@ def main() -> None:
         if not args.bottle_root_url:
             raise SystemExit("--bottle-root-url is required with --bottle-json")
         bottle = load_bottle(pathlib.Path(args.bottle_json))
-        cellar = bottle["cellar"]
-        if cellar in ("any", ":any"):
-            sha_line = f'  sha256 cellar: :any, x86_64_linux: "{bottle["sha256"]}"'
-        elif cellar in ("any_skip_relocation", ":any_skip_relocation"):
-            sha_line = f'  sha256 cellar: :any_skip_relocation, x86_64_linux: "{bottle["sha256"]}"'
-        elif cellar:
-            escaped_cellar = str(cellar).replace('"', '\\"')
-            sha_line = f'  sha256 cellar: "{escaped_cellar}", x86_64_linux: "{bottle["sha256"]}"'
-        else:
-            sha_line = f'  sha256 x86_64_linux: "{bottle["sha256"]}"'
+        sha_line = f'    sha256 x86_64_linux: "{bottle["sha256"]}"'
         bottle_block = (
             "  bottle do\n"
             f'    root_url "{args.bottle_root_url.rstrip("/")}"\n'
