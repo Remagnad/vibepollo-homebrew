@@ -93,13 +93,21 @@ cat > "$source_dir/HOMEBREW-UPSTREAM.json" <<EOF
 EOF
 echo "::endgroup::"
 
-# A source bundle must not contain .git directories or gitdir pointer files.
-find "$source_dir" -name .git -prune -exec rm -rf {} +
-
+# Keep Git metadata out of the source archive without deleting it from the
+# checkout. Submodule gitdir metadata lives below the parent .git/modules tree;
+# recursively deleting that tree can race with Git's background maintenance.
 epoch="${SOURCE_DATE_EPOCH:-0}"
 bundle_name="Vibepollo-$version"
-tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+tar --exclude='.git' --exclude='*/.git' \
+    --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
     -C "$workdir" -cf - "$bundle_name" | gzip -n -9 > "$output_tarball"
+
+# Fail closed if any .git directory or gitdir pointer file made it into the
+# distributable source bundle.
+if tar -tzf "$output_tarball" | grep -Eq '(^|/)\\.git(/|$)'; then
+    echo "Source bundle unexpectedly contains Git metadata." >&2
+    exit 1
+fi
 
 sha256sum "$output_tarball"
 echo "Created source bundle: $output_tarball"
