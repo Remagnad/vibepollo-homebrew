@@ -216,6 +216,33 @@ endif()""",
       if (display_is_hdr && disp.get_hdr_metadata(metadata)) {""",
     )
 
+    # AppIndicator icons are resolved by the desktop's separate watcher process.
+    # Supply Homebrew's private icon theme root explicitly so the watcher can
+    # load the bundled hicolor SVGs even when it cannot inherit this process's
+    # XDG_DATA_DIRS.
+    replace_once(
+        root / "third-party/tray/src/tray_linux.c",
+        """  if (indicator == NULL || !IS_APP_INDICATOR(indicator)) {
+    tray_log(TRAY_LOG_ERROR, "app_indicator_new() failed");
+    return -1;
+  }
+  app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);""",
+        """  if (indicator == NULL || !IS_APP_INDICATOR(indicator)) {
+    tray_log(TRAY_LOG_ERROR, "app_indicator_new() failed");
+    return -1;
+  }
+  // AppIndicator's watcher runs in a separate process, so pass the private
+  // Homebrew icon-theme root explicitly instead of relying on GTK discovery.
+  const char *icon_theme_path = g_getenv("VIBEPOLLO_ICON_THEME_PATH");
+  if (icon_theme_path != NULL && icon_theme_path[0] != '\\0' &&
+      g_file_test(icon_theme_path, G_FILE_TEST_IS_DIR)) {
+    app_indicator_set_icon_theme_path(indicator, icon_theme_path);
+    tray_log(TRAY_LOG_DEBUG, "Using AppIndicator icon theme path: %s", icon_theme_path);
+  } else if (icon_theme_path != NULL && icon_theme_path[0] != '\\0') {
+    tray_log(TRAY_LOG_WARNING, "AppIndicator icon theme path does not exist: %s", icon_theme_path);
+  }
+  app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);""",
+    )
     # The Linux AppIndicator loop may call tray_exit() once from the owner
     # thread and again as the loop unwinds. Make libnotify cleanup idempotent
     # so the second call cannot inspect a released GObject.
