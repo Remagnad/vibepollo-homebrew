@@ -89,6 +89,16 @@ endif()""",
     install(FILES "${CMAKE_SOURCE_DIR}/apollo.svg"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
             RENAME "${PROJECT_FQDN}.svg")
+    if(SUNSHINE_ENABLE_TRAY AND SUNSHINE_TRAY STREQUAL "1")
+        install(FILES "${CMAKE_SOURCE_DIR}/apollo.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "${PROJECT_FQDN}-tray.svg")
+        foreach(state playing pausing locked)
+            install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/apollo-${state}.svg"
+                    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                    RENAME "${PROJECT_FQDN}-${state}.svg")
+        endforeach()
+    endif()
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FQDN}.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
     if(SUNSHINE_ENABLE_TRAY AND SUNSHINE_TRAY STREQUAL "1")
