@@ -28,6 +28,7 @@ FORMULA_TEMPLATE = '''class VibepolloApp < Formula
   depends_on "libevdev"
   depends_on "libva"
   depends_on "libx11"
+  depends_on "libxrandr"
   depends_on "miniupnpc"
   depends_on "mesa"
   depends_on "numactl"
