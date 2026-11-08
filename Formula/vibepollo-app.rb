@@ -2,8 +2,13 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "6f56390d56c5d0c9d0704705a7beca116686928775c9049382dfb544214c5482"
+  sha256 "83a6ce7f3d253d837cd141e3f58227a304e74fc750a41ad653aa7ac686cf0b5b"
   license "GPL-3.0-only"
+
+  bottle do
+    root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
+    sha256 x86_64_linux: "96aed037d00d6cc5e16b2812bc46e7598473bdd2693319e583491ffbdd5f2ad5"
+  end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
@@ -17,26 +22,24 @@ class VibepolloApp < Formula
   depends_on "vulkan-headers" => :build
 
   depends_on "at-spi2-core"
+  depends_on "boost"
   depends_on "cairo"
+  depends_on "curl"
+  depends_on "gcc@14"
   depends_on "gdk-pixbuf"
+  depends_on "glib"
   depends_on "gtk+3"
   depends_on "harfbuzz"
   depends_on "jpeg-turbo"
-  depends_on "libdbusmenu"
-  depends_on "libice"
-  depends_on "libpng"
-  depends_on "libsm"
-  depends_on "pango"
-  depends_on "webp"
-  depends_on "boost"
-  depends_on "curl"
-  depends_on "gcc@14"
-  depends_on "glib"
   depends_on "libayatana-appindicator"
   depends_on "libcap"
+  depends_on "libdbusmenu"
   depends_on "libdrm"
   depends_on "libevdev"
+  depends_on "libice"
   depends_on "libnotify"
+  depends_on "libpng"
+  depends_on "libsm"
   depends_on "libva"
   depends_on "libx11"
   depends_on "libxext"
@@ -46,12 +49,14 @@ class VibepolloApp < Formula
   depends_on "numactl"
   depends_on "openssl@3"
   depends_on "opus"
+  depends_on "pango"
   depends_on "pipewire"
   depends_on "pulseaudio"
   depends_on "pyside"
   depends_on "sqlite"
   depends_on "vulkan-loader"
   depends_on "wayland"
+  depends_on "webp"
   depends_on "zlib-ng-compat"
 
   # These values are generated from the exact GitHub release tag and commit.
