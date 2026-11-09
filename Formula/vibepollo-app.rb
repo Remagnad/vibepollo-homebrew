@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "bc350eed00792dfeec14e8cd26e787810ad85168289239d6f3f04115c5ea3f8e"
+    sha256 x86_64_linux: "bf597de5549b4511c9fe4eac0b373b9765b39e3dce32bbdde3bc195c974ea89a"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -175,6 +175,8 @@ class VibepolloApp < Formula
         esac
         XDG_DATA_DIRS=$xdg_data_dirs
         export XDG_DATA_DIRS
+        VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
+        export VIBEPOLLO_ICON_THEME_PATH
 
         exec "$formula_prefix/libexec/vibepollo-bin" "$@"
       SH
@@ -212,6 +214,7 @@ class VibepolloApp < Formula
       #!/bin/sh
       printf '%s\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
       printf '%s\n' "${XDG_DATA_DIRS:-unset}"
+      printf '%s\n' "${VIBEPOLLO_ICON_THEME_PATH:-unset}"
       printf '%s\n' "$@"
     SH
     launcher_stub.chmod(0755)
@@ -231,6 +234,8 @@ class VibepolloApp < Formula
 ",
       "#{expected_default_xdg}
 ",
+      "#{launcher_test_prefix}/share/icons
+",
       "--wrapper-test
 ",
       "argument with spaces
@@ -248,6 +253,8 @@ class VibepolloApp < Formula
       "#{custom_bus}
 ",
       "#{launcher_test_prefix}/share:#{custom_xdg}
+",
+      "#{launcher_test_prefix}/share/icons
 ",
       "--wrapper-test
 ",
