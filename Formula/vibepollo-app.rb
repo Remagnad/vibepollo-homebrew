@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "8e37135b4f6ba073f9da53c8a074836382b5c414aee889e3a511c9df70a15eaf"
+    sha256 x86_64_linux: "e9e22521d878078387b39891da257503bad9b18f24e9aec79c276e0a748f1330"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -149,10 +149,11 @@ class VibepolloApp < Formula
           base_dir = /var/tmp
           hash_dir = false
         CONF
+        # Inject CCACHE_CONFIGPATH inside the sandbox instead of passing ccache CLI options.
         ccache_launcher = [which("cmake"), "-E", "env", "CCACHE_CONFIGPATH=#{ccache_config}", ccache].join(";")
         cmake_args += [
           "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache_launcher}",
-          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}"
+          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}",
         ]
       end
 
