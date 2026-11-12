@@ -149,7 +149,8 @@ __BOTTLE_BLOCK__
         ccache_config = HOMEBREW_CACHE/"vibepollo-ccache.conf"
         ccache_dir.mkpath
         ccache_temp_dir.mkpath
-        # Refresh the config because the CI workflow may have created it before the build.\n        File.write(ccache_config, <<~CONF
+        # Refresh the config because the CI workflow may have created it before the build.
+        File.write(ccache_config, <<~CONF
           cache_dir = #{ccache_dir}
           temporary_dir = #{ccache_temp_dir}
           max_size = 2G
