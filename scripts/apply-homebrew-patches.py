@@ -303,6 +303,53 @@ endif()""",
         return;
       }""",
     )
+    # Vulkan's encoder in vulkan_encode.cpp imports DMA-BUF exclusively.
+    # The generic PipeWire MemPtr/MemFd fallback creates descriptors without a
+    # DMA-BUF FD, which this encoder cannot upload or import. Keep that fallback
+    # for the other memory backends, but never advertise it for Vulkan capture.
+    replace_once(
+        root / "src/platform/linux/pipewire.cpp",
+        """        // Add fallback for memptr
+        for (const auto &fmt : format_map) {
+          if (force_hdr10_formats_) {
+            // The current CPU conversion path assumes 8-bit BGR pixels.
+            // HDR capture requires an importable 10-bit DMA-BUF.
+            break;
+          }
+          if ((force_sdr_formats_ && !is_sdr_format(fmt.pw_format)) ||
+              (force_hdr10_formats_ && fmt.pw_format != SPA_VIDEO_FORMAT_xBGR_210LE)) {
+            continue;
+          }
+          auto format_param = build_format_parameter(&pod_builder, width, height, refresh_rate, fmt.pw_format, nullptr, 0);
+          params[n_params] = format_param;
+          n_params++;
+        }""",
+        """        // Vulkan's encoder imports DMA-BUF exclusively; it has no MemPtr/MemFd
+        // upload path. Do not offer PipeWire's software fallback when that
+        // encoder will be selected, or it may receive a descriptor with fd = -1.
+        const bool vulkan_dmabuf_only =
+          mem_type == platf::mem_type_e::vulkan && n_dmabuf_infos > 0;
+        if (!vulkan_dmabuf_only) {
+          // Add fallback for memptr
+          for (const auto &fmt : format_map) {
+            if (force_hdr10_formats_) {
+              // The current CPU conversion path assumes 8-bit BGR pixels.
+              // HDR capture requires an importable 10-bit DMA-BUF.
+              break;
+            }
+            if ((force_sdr_formats_ && !is_sdr_format(fmt.pw_format)) ||
+                (force_hdr10_formats_ && fmt.pw_format != SPA_VIDEO_FORMAT_xBGR_210LE)) {
+              continue;
+            }
+            auto format_param = build_format_parameter(&pod_builder, width, height, refresh_rate, fmt.pw_format, nullptr, 0);
+            params[n_params] = format_param;
+            n_params++;
+          }
+        } else if (n_params == 0) {
+          BOOST_LOG(error) << "[pipewire] Vulkan capture requires a compatible DMA-BUF format"sv;
+        }""",
+    )
+
     print("Applied the Linux AppIndicator shutdown cleanup fix.")
     print("Applied the RTSP shutdown cancellation fix.")
     print("Applied the Linux Homebrew CMake port patch.")
