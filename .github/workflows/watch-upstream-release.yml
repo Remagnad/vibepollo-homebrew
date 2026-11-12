@@ -29,6 +29,8 @@ env:
   HOMEBREW_NO_ANALYTICS: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
   HOMEBREW_NO_AUTOREMOVE: "1"
+  # Pre-fetch all bottle dependencies concurrently instead of Homebrew's small runner-based default.
+  HOMEBREW_DOWNLOAD_CONCURRENCY: "16"
 
 jobs:
   check-upstream:
@@ -132,8 +134,38 @@ jobs:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
         with:
-          core: true
+          # Formulae are resolved through Homebrew's JSON API; cloning homebrew/core
+          # here adds several minutes and is unnecessary for a third-party tap.
+          core: false
           cask: false
+
+      - name: Export Homebrew cache paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "HOMEBREW_PREFIX=$(brew --prefix)"
+            echo "HOMEBREW_CELLAR=$(brew --cellar)"
+            echo "HOMEBREW_CACHE_DIR=$(brew --cache)"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore prebuilt Homebrew dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.HOMEBREW_CELLAR }}
+            ${{ env.HOMEBREW_PREFIX }}/opt
+            ${{ env.HOMEBREW_PREFIX }}/bin
+            ${{ env.HOMEBREW_PREFIX }}/sbin
+            ${{ env.HOMEBREW_PREFIX }}/include
+            ${{ env.HOMEBREW_PREFIX }}/lib
+            ${{ env.HOMEBREW_PREFIX }}/share
+            ${{ env.HOMEBREW_PREFIX }}/etc
+            ${{ env.HOMEBREW_PREFIX }}/Frameworks
+            ${{ env.HOMEBREW_CACHE_DIR }}/downloads
+          key: vibepollo-homebrew-deps-ubuntu-22.04-x86_64-${{ hashFiles('Formula/vibepollo-app.rb') }}
+          restore-keys: |
+            vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
 
       - name: Install system headers not provided by Homebrew
         run: |
@@ -541,7 +573,7 @@ jobs:
       - name: Set up Homebrew for formula audit
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
         with:
-          core: true
+          core: false
           cask: false
 
       - name: Create a local tap for formula validation
