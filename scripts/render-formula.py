@@ -157,7 +157,7 @@ __BOTTLE_BLOCK__
           base_dir = /var/tmp
           hash_dir = false
         CONF
-        ccache_launcher = [ccache, "--config-path", ccache_config.to_s].join(";")
+        ccache_launcher = [which("cmake"), "-E", "env", "CCACHE_CONFIGPATH=#{ccache_config}", ccache].join(";")
         cmake_args += [
           "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache_launcher}",
           "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}"
