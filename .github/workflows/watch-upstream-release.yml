@@ -155,8 +155,11 @@ jobs:
           restore-keys: |
             vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
 
-      - name: Prepare compiler cache temporary directory
-        run: mkdir -p "$CCACHE_TEMPDIR"
+      - name: Configure compiler cache temporary directory
+        run: |
+          mkdir -p "$CCACHE_DIR/tmp"
+          ccache --set-config="temporary_dir=$CCACHE_DIR/tmp"
+          ccache --show-config
 
       - name: Reset compiler cache statistics
         run: ccache --zero-stats
