@@ -139,6 +139,16 @@ __BOTTLE_BLOCK__
         "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF"
       ]
 
+      # Use an optional system ccache when available. CI restores this cache
+      # between ephemeral runners; local source builds remain dependency-free.
+      ccache = which("ccache")
+      if ccache
+        cmake_args += [
+          "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache}",
+          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache}"
+        ]
+      end
+
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
       system "cmake", "--build", buildpath/"build", "--parallel"
       system "cmake", "--install", buildpath/"build"

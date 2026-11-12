@@ -125,6 +125,12 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+    env:
+      CCACHE_DIR: ${{ runner.temp }}/ccache
+      CCACHE_BASEDIR: /tmp
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 2G
+      CCACHE_NOHASHDIR: "true"
     steps:
       - name: Check out tap
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -138,7 +144,18 @@ jobs:
       - name: Install system headers not provided by Homebrew
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libudev-dev
+          sudo apt-get install --yes --no-install-recommends libudev-dev ccache
+
+      - name: Restore C/C++ compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-${{ github.run_id }}
+          restore-keys: |
+            vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
+
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
 
       - name: Prepare exact upstream source bundle
         id: source
@@ -339,6 +356,10 @@ jobs:
 
           brew install --build-bottle --verbose Remagnad/vibepollo-homebrew/vibepollo-app
           rm -f dist/Linux-x86_64-ffmpeg.tar.gz
+
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
 
       - name: Test source installation and dynamic linkage
         run: |
