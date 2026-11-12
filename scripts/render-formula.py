@@ -157,6 +157,7 @@ __BOTTLE_BLOCK__
           base_dir = /var/tmp
           hash_dir = false
         CONF
+        # Inject CCACHE_CONFIGPATH inside the sandbox instead of passing ccache CLI options.
         ccache_launcher = [which("cmake"), "-E", "env", "CCACHE_CONFIGPATH=#{ccache_config}", ccache].join(";")
         cmake_args += [
           "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache_launcher}",
