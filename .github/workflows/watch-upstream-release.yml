@@ -126,7 +126,7 @@ jobs:
     permissions:
       contents: read
     env:
-      CCACHE_DIR: ${{ runner.temp }}/ccache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_BASEDIR: /tmp
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 2G
@@ -149,7 +149,7 @@ jobs:
       - name: Restore C/C++ compiler cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/ccache
+          path: ${{ github.workspace }}/.ccache
           key: vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-${{ github.run_id }}
           restore-keys: |
             vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
