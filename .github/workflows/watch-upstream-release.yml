@@ -140,29 +140,38 @@ jobs:
           cask: false
 
       - name: Export Homebrew cache paths
+        id: brew-paths
         shell: bash
         run: |
           set -Eeuo pipefail
+          prefix="$(brew --prefix)"
+          cellar="$(brew --cellar)"
+          cache_dir="$(brew --cache)"
           {
-            echo "HOMEBREW_PREFIX=$(brew --prefix)"
-            echo "HOMEBREW_CELLAR=$(brew --cellar)"
-            echo "HOMEBREW_CACHE_DIR=$(brew --cache)"
+            echo "HOMEBREW_PREFIX=$prefix"
+            echo "HOMEBREW_CELLAR=$cellar"
+            echo "HOMEBREW_CACHE_DIR=$cache_dir"
           } >> "$GITHUB_ENV"
+          {
+            echo "prefix=$prefix"
+            echo "cellar=$cellar"
+            echo "cache_dir=$cache_dir"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Restore prebuilt Homebrew dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ${{ env.HOMEBREW_CELLAR }}
-            ${{ env.HOMEBREW_PREFIX }}/opt
-            ${{ env.HOMEBREW_PREFIX }}/bin
-            ${{ env.HOMEBREW_PREFIX }}/sbin
-            ${{ env.HOMEBREW_PREFIX }}/include
-            ${{ env.HOMEBREW_PREFIX }}/lib
-            ${{ env.HOMEBREW_PREFIX }}/share
-            ${{ env.HOMEBREW_PREFIX }}/etc
-            ${{ env.HOMEBREW_PREFIX }}/Frameworks
-            ${{ env.HOMEBREW_CACHE_DIR }}/downloads
+            ${{ steps.brew-paths.outputs.cellar }}
+            ${{ steps.brew-paths.outputs.prefix }}/opt
+            ${{ steps.brew-paths.outputs.prefix }}/bin
+            ${{ steps.brew-paths.outputs.prefix }}/sbin
+            ${{ steps.brew-paths.outputs.prefix }}/include
+            ${{ steps.brew-paths.outputs.prefix }}/lib
+            ${{ steps.brew-paths.outputs.prefix }}/share
+            ${{ steps.brew-paths.outputs.prefix }}/etc
+            ${{ steps.brew-paths.outputs.prefix }}/Frameworks
+            ${{ steps.brew-paths.outputs.cache_dir }}/downloads
           key: vibepollo-homebrew-deps-ubuntu-22.04-x86_64-${{ hashFiles('Formula/vibepollo-app.rb') }}
           restore-keys: |
             vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
