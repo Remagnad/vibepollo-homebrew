@@ -148,6 +148,20 @@ jobs:
           restore-keys: |
             vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
 
+      - name: Report restored compiler cache state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cache_dir="$(brew --cache)/vibepollo-ccache"
+          if [[ -d "$cache_dir" ]]; then
+            echo "Restored CCache directory:"
+            du -sh "$cache_dir"
+            printf 'Cached object files: '
+            find "$cache_dir" -type f | wc -l
+          else
+            echo "No previous CCache directory was restored."
+          fi
+
       - name: Configure C/C++ compiler cache
         shell: bash
         run: |
