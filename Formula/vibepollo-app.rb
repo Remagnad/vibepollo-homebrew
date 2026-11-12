@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "f9775e5732c89233c15750ec111b4c009de4fbaced6c2b60e771f66547cc34ca"
+  sha256 "848ed79215c1b65405d872e3be523127080da3e4cfd2fadf5924dca5e3646358"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "bf597de5549b4511c9fe4eac0b373b9765b39e3dce32bbdde3bc195c974ea89a"
+    sha256 x86_64_linux: "8e37135b4f6ba073f9da53c8a074836382b5c414aee889e3a511c9df70a15eaf"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -129,16 +129,6 @@ class VibepolloApp < Formula
         "-DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF",
         "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF"
       ]
-
-      # Use an optional system ccache when available. CI restores this cache
-      # between ephemeral runners; local source builds remain dependency-free.
-      ccache = which("ccache")
-      if ccache
-        cmake_args += [
-          "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache}",
-          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache}"
-        ]
-      end
 
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
       system "cmake", "--build", buildpath/"build", "--parallel"
