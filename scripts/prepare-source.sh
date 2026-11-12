@@ -54,7 +54,7 @@ submodules=(
 )
 
 echo "::group::Fetch pinned top-level submodules"
-git -C "$source_dir" -c protocol.version=2 submodule update --init --depth=1 -- "${submodules[@]}"
+git -C "$source_dir" -c protocol.version=2 -c submodule.fetchJobs=8 submodule update --init --depth=1 --jobs 8 -- "${submodules[@]}"
 for path in "${submodules[@]}"; do
     expected="$(git -C "$source_dir" ls-tree HEAD -- "$path" | awk '{print $3}')"
     actual="$(git -C "$source_dir/$path" rev-parse HEAD)"
@@ -75,7 +75,7 @@ test -f "$source_dir/third-party/libvirtualgamepad/linux/vibeshine-ds5/vibeshine
 
 echo "::group::Fetch required nested moonlight-common-c submodules"
 git -C "$source_dir/third-party/moonlight-common-c" \
-    -c protocol.version=2 submodule update --init --depth=1 -- enet nanors/deps/simde
+    -c protocol.version=2 -c submodule.fetchJobs=8 submodule update --init --depth=1 --jobs 8 -- enet nanors/deps/simde
 
 for path in enet nanors/deps/simde; do
     expected="$(git -C "$source_dir/third-party/moonlight-common-c" ls-tree HEAD -- "$path" | awk '{print $3}')"
