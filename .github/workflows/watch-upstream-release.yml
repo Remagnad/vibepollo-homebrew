@@ -127,7 +127,8 @@ jobs:
       contents: read
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
-      CCACHE_BASEDIR: /tmp
+      CCACHE_BASEDIR: /var/tmp
+      CCACHE_TEMPDIR: ${{ github.workspace }}/.ccache/tmp
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 2G
       CCACHE_NOHASHDIR: "true"
@@ -153,6 +154,9 @@ jobs:
           key: vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-${{ github.run_id }}
           restore-keys: |
             vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
+
+      - name: Prepare compiler cache temporary directory
+        run: mkdir -p "$CCACHE_TEMPDIR"
 
       - name: Reset compiler cache statistics
         run: ccache --zero-stats
