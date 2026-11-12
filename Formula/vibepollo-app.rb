@@ -130,6 +130,31 @@ class VibepolloApp < Formula
         "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF"
       ]
 
+      # Homebrew's Linux build sandbox only permits writes to HOMEBREW_CACHE
+      # and HOMEBREW_TEMP. Pass an explicit ccache config so the launcher keeps
+      # working after Homebrew strips non-whitelisted CCACHE_* environment values.
+      ccache = which("ccache")
+      if ccache
+        ccache_dir = HOMEBREW_CACHE/"vibepollo-ccache"
+        ccache_temp_dir = HOMEBREW_CACHE/"vibepollo-ccache-tmp"
+        ccache_config = HOMEBREW_CACHE/"vibepollo-ccache.conf"
+        ccache_dir.mkpath
+        ccache_temp_dir.mkpath
+        ccache_config.write <<~CONF
+          cache_dir = #{ccache_dir}
+          temporary_dir = #{ccache_temp_dir}
+          max_size = 2G
+          compiler_check = content
+          base_dir = /var/tmp
+          hash_dir = false
+        CONF
+        ccache_launcher = [ccache, "--config-path", ccache_config.to_s].join(";")
+        cmake_args += [
+          "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache_launcher}",
+          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}"
+        ]
+      end
+
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
       system "cmake", "--build", buildpath/"build", "--parallel"
       system "cmake", "--install", buildpath/"build"
