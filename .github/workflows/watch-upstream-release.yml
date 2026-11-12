@@ -163,7 +163,9 @@ jobs:
         with:
           path: |
             ${{ steps.brew-paths.outputs.cellar }}
+            !${{ steps.brew-paths.outputs.cellar }}/vibepollo-app
             ${{ steps.brew-paths.outputs.prefix }}/opt
+            !${{ steps.brew-paths.outputs.prefix }}/opt/vibepollo-app
             ${{ steps.brew-paths.outputs.prefix }}/bin
             ${{ steps.brew-paths.outputs.prefix }}/sbin
             ${{ steps.brew-paths.outputs.prefix }}/include
@@ -387,6 +389,18 @@ jobs:
 
       - name: Auto-fix generated Formula style
         run: brew style --fix Formula/vibepollo-app.rb
+
+      - name: Remove any cached Vibepollo installation before building
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The dependency cache must never satisfy the target formula itself.
+          # Otherwise brew install --build-bottle can skip the build entirely.
+          if brew list --versions vibepollo-app >/dev/null 2>&1; then
+            brew uninstall --force --ignore-dependencies vibepollo-app
+          fi
+          test ! -e "$(brew --cellar)/vibepollo-app"
+          test ! -e "$(brew --prefix)/opt/vibepollo-app"
 
       - name: Register the working tree as a local Homebrew tap
         shell: bash
