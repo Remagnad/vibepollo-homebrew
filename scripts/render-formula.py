@@ -161,6 +161,7 @@ __BOTTLE_BLOCK__
           temporary_dir = #{ccache_temp_dir}
           max_size = 2G
           compiler_check = content
+          depend_mode = true
           base_dir = /var/tmp
           hash_dir = false
         CONF
