@@ -123,7 +123,7 @@ jobs:
     name: Build, bottle and verify Linux x86_64
     needs: check-upstream
     if: needs.check-upstream.outputs.updated == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
       contents: read
@@ -179,10 +179,18 @@ jobs:
             ${{ steps.brew-paths.outputs.cache_dir }}/downloads
           # Formula source URLs and bottle hashes change every release; the dependency graph does not.
           # Refresh weekly, but restore the previous dependency cache when the week changes.
-          key: vibepollo-homebrew-deps-ubuntu-22.04-x86_64-v1-${{ steps.deps-cache.outputs.week }}
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
-            vibepollo-homebrew-deps-ubuntu-22.04-x86_64-v1-
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
             vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
+
+      - name: Report Linux ABI baseline
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME")"
+          echo "System GLIBC: $(getconf GNU_LIBC_VERSION)"
+          echo "System compiler: $(gcc --version | head -n1)"
 
       - name: Install system headers not provided by Homebrew
         shell: bash
@@ -204,9 +212,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/Homebrew/vibepollo-ccache
-          key: vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-${{ github.run_id }}
+          key: vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
           restore-keys: |
-            vibepollo-ccache-ubuntu-22.04-x86_64-gcc14-
+            vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-
 
       - name: Report restored compiler cache state
         shell: bash
