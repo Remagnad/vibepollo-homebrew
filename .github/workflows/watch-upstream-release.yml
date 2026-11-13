@@ -30,7 +30,7 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
   HOMEBREW_NO_AUTOREMOVE: "1"
   # Pre-fetch all bottle dependencies concurrently instead of Homebrew's small runner-based default.
-  HOMEBREW_DOWNLOAD_CONCURRENCY: "32"
+  HOMEBREW_DOWNLOAD_CONCURRENCY: "auto"
 
 jobs:
   check-upstream:
