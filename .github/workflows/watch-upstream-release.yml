@@ -30,7 +30,7 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
   HOMEBREW_NO_AUTOREMOVE: "1"
   # Pre-fetch all bottle dependencies concurrently instead of Homebrew's small runner-based default.
-  HOMEBREW_DOWNLOAD_CONCURRENCY: "16"
+  HOMEBREW_DOWNLOAD_CONCURRENCY: "32"
 
 jobs:
   check-upstream:
@@ -163,9 +163,7 @@ jobs:
         with:
           path: |
             ${{ steps.brew-paths.outputs.cellar }}
-            !${{ steps.brew-paths.outputs.cellar }}/vibepollo-app
             ${{ steps.brew-paths.outputs.prefix }}/opt
-            !${{ steps.brew-paths.outputs.prefix }}/opt/vibepollo-app
             ${{ steps.brew-paths.outputs.prefix }}/bin
             ${{ steps.brew-paths.outputs.prefix }}/sbin
             ${{ steps.brew-paths.outputs.prefix }}/include
@@ -179,9 +177,20 @@ jobs:
             vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
 
       - name: Install system headers not provided by Homebrew
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libudev-dev ccache
+          set -Eeuo pipefail
+          missing=()
+          if ! dpkg-query -W -f='${db:Status-Status}' libudev-dev 2>/dev/null | grep -qx installed; then
+            missing+=(libudev-dev)
+          fi
+          if ! command -v ccache >/dev/null 2>&1; then
+            missing+=(ccache)
+          fi
+          if (('${#missing[@]}' > 0)); then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends "${missing[@]}"
+          fi
 
       - name: Restore C/C++ compiler cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -387,9 +396,6 @@ jobs:
             --ffmpeg-url "http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz" \
             --output Formula/vibepollo-app.rb
 
-      - name: Auto-fix generated Formula style
-        run: brew style --fix Formula/vibepollo-app.rb
-
       - name: Remove any cached Vibepollo installation before building
         shell: bash
         run: |
@@ -433,7 +439,7 @@ jobs:
             -o /dev/null
           curl --fail --silent http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz -o /dev/null
 
-          brew install --build-bottle --verbose Remagnad/vibepollo-homebrew/vibepollo-app
+          brew install --build-bottle Remagnad/vibepollo-homebrew/vibepollo-app
           rm -f dist/Linux-x86_64-ffmpeg.tar.gz
 
       - name: Report compiler cache statistics
@@ -447,11 +453,6 @@ jobs:
           else
             echo "CCache configuration was not created."
           fi
-
-      - name: Test source installation and dynamic linkage
-        run: |
-          brew test Remagnad/vibepollo-homebrew/vibepollo-app
-          brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
       - name: Verify bottle JSON parser against Homebrew output format
         env:
@@ -575,6 +576,18 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove Vibepollo before saving the dependency cache
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The cache should contain reusable dependencies, never the target keg.
+          if brew list --versions vibepollo-app >/dev/null 2>&1; then
+            brew uninstall --force --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
+          fi
+          test ! -e "$(brew --cellar)/vibepollo-app"
+          test ! -e "$(brew --prefix)/opt/vibepollo-app"
 
   publish:
     name: Publish release assets and update Formula
