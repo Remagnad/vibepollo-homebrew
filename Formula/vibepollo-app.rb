@@ -7,13 +7,14 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "8b00805090545b962451e9931edc8567da6b7c45b7a969070117ee7229fca048"
+    sha256 x86_64_linux: "3b9d61983ced81d3397e5aace24fa3812313622754418f3f163107590ec675e5"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
+  depends_on "mold" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   depends_on "node" => :build
@@ -101,6 +102,11 @@ class VibepolloApp < Formula
         # -O2 retains release-grade optimization while substantially reducing C++ compile time.
         "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG",
         "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG",
+        "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold",
+        "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold",
+        "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold",
+        # Include linked dependency directories (notably keg-only openssl@3) in installed ELF RUNPATH.
+        "-DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON",
         "-DCMAKE_INSTALL_BINDIR=bin",
         "-DCMAKE_INSTALL_LIBDIR=lib",
         "-DCMAKE_INSTALL_DATADIR=share",
@@ -147,6 +153,7 @@ class VibepolloApp < Formula
           temporary_dir = #{ccache_temp_dir}
           max_size = 2G
           compiler_check = content
+          depend_mode = true
           base_dir = /var/tmp
           hash_dir = false
         CONF
@@ -159,7 +166,7 @@ class VibepolloApp < Formula
       end
 
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
-      system "cmake", "--build", buildpath/"build", "--parallel"
+      system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
 
       # Homebrew builds libdbus with its own prefix-specific default system-bus path.
