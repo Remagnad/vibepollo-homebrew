@@ -158,6 +158,11 @@ jobs:
             echo "cache_dir=$cache_dir"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Compute Homebrew dependency cache epoch
+        id: deps-cache
+        shell: bash
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
       - name: Restore prebuilt Homebrew dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -172,8 +177,11 @@ jobs:
             ${{ steps.brew-paths.outputs.prefix }}/etc
             ${{ steps.brew-paths.outputs.prefix }}/Frameworks
             ${{ steps.brew-paths.outputs.cache_dir }}/downloads
-          key: vibepollo-homebrew-deps-ubuntu-22.04-x86_64-${{ hashFiles('Formula/vibepollo-app.rb') }}
+          # Formula source URLs and bottle hashes change every release; the dependency graph does not.
+          # Refresh weekly, but restore the previous dependency cache when the week changes.
+          key: vibepollo-homebrew-deps-ubuntu-22.04-x86_64-v1-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
+            vibepollo-homebrew-deps-ubuntu-22.04-x86_64-v1-
             vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
 
       - name: Install system headers not provided by Homebrew
@@ -582,6 +590,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          if ! command -v brew >/dev/null 2>&1; then
+            echo "Homebrew was not installed; nothing to clean."
+            exit 0
+          fi
           # The cache should contain reusable dependencies, never the target keg.
           if brew list --versions vibepollo-app >/dev/null 2>&1; then
             brew uninstall --force --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
