@@ -196,7 +196,7 @@ jobs:
             missing+=(ccache)
           fi
           if ((${#missing[@]} > 0)); then
-            sudo apt-get update
+            # GitHub's Ubuntu runner image already has current apt indexes.
             sudo apt-get install --yes --no-install-recommends "${missing[@]}"
           fi
 
