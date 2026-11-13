@@ -183,6 +183,16 @@ jobs:
           restore-keys: |
             vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
 
+      - name: Unlink cached D-Bus before dependency upgrades
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The restored Homebrew cache includes both Cellar kegs and prefix
+          # symlinks. Unlink the cached D-Bus keg so an upgrade can link cleanly.
+          if brew list --versions dbus >/dev/null 2>&1; then
+            brew unlink dbus
+          fi
+
       - name: Report Linux ABI baseline
         shell: bash
         run: |
