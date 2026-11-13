@@ -277,8 +277,9 @@ jobs:
           test -f "$openssl_prefix/include/openssl/ssl.h"
           test -f "$openssl_prefix/lib/libssl.so.3"
           test -f "$openssl_prefix/lib/libcrypto.so.3"
+          export OPENSSL_ROOT_DIR="$openssl_prefix"
           echo "Debug build OpenSSL: $("$openssl_prefix/bin/openssl" version)"
-          echo "OPENSSL_ROOT_DIR=$openssl_prefix"
+          echo "OPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR"
           {
             echo "TAG=$TAG"
             echo "COMMIT=$COMMIT"
@@ -337,7 +338,7 @@ jobs:
 
           # Fail before compilation if CMake silently selects a different OpenSSL.
           for variable in OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY; do
-            value="$(sed -n "s/^$variable:FILEPATH=//p" build-debug/CMakeCache.txt | tail -n1)"
+            value="$(sed -n "s/^$variable:[^=]*=//p" build-debug/CMakeCache.txt | tail -n1)"
             if [[ "$value" != "$OPENSSL_ROOT_DIR/"* ]]; then
               echo "::error::CMake selected $variable outside OpenSSL 3: $value"
               grep -E '^OPENSSL_(INCLUDE_DIR|SSL_LIBRARY|CRYPTO_LIBRARY):' build-debug/CMakeCache.txt || true
