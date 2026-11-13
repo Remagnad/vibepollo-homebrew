@@ -174,7 +174,7 @@ __BOTTLE_BLOCK__
       end
 
       system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
-      system "cmake", "--build", buildpath/"build", "--parallel"
+      system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
 
       # Homebrew builds libdbus with its own prefix-specific default system-bus path.
