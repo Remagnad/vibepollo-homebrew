@@ -166,6 +166,10 @@ jobs:
           mkdir -p "$tap_path/Formula"
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
 
+          # Homebrew refuses to inspect formulas from newly created local taps
+          # until the formula is explicitly trusted.
+          brew trust --formula "$formula"
+
           mapfile -t dependencies < <(brew deps --include-build --formula "$formula")
           if ((${#dependencies[@]} == 0)); then
             echo "::error::Homebrew returned no formula dependencies."
