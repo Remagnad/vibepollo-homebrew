@@ -108,7 +108,7 @@ epoch="${SOURCE_DATE_EPOCH:-0}"
 bundle_name="Vibepollo-$version"
 tar --exclude='.git' --exclude='*/.git' \
     --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
-    -C "$workdir" -cf - "$bundle_name" | gzip -n -9 > "$output_tarball"
+    -C "$workdir" -cf - "$bundle_name" | gzip -n -1 > "$output_tarball"
 
 # Fail closed if any .git directory or gitdir pointer file made it into the
 # distributable source bundle.
