@@ -114,6 +114,8 @@ __BOTTLE_BLOCK__
         "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold",
         "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold",
         "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold",
+        # Include linked dependency directories (notably keg-only openssl@3) in installed ELF RUNPATH.
+        "-DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON",
         "-DCMAKE_INSTALL_BINDIR=bin",
         "-DCMAKE_INSTALL_LIBDIR=lib",
         "-DCMAKE_INSTALL_DATADIR=share",

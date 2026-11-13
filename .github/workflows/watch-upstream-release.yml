@@ -577,6 +577,20 @@ jobs:
           # Install the bottle with its declared runtime dependencies, just like an end user.
           # In particular, openssl@3 must be present when the executable is tested.
           brew install --force-bottle Remagnad/vibepollo-homebrew/vibepollo-app
+
+          # Diagnose ELF runtime resolution before running the formula test.
+          app_binary="$(brew --prefix vibepollo-app)/libexec/vibepollo-bin"
+          openssl_library="$(brew --prefix openssl@3)/lib/libssl.so.3"
+          echo "Vibepollo executable: $app_binary"
+          echo "OpenSSL runtime library: $openssl_library"
+          ls -l "$openssl_library"
+          readelf -d "$app_binary" | grep -E 'NEEDED|RPATH|RUNPATH' || true
+          ldd "$app_binary" | tee "$RUNNER_TEMP/vibepollo-ldd.txt"
+          if grep -q 'not found' "$RUNNER_TEMP/vibepollo-ldd.txt"; then
+            echo "::error::Vibepollo has unresolved shared-library dependencies after bottle installation."
+            exit 1
+          fi
+
           brew test Remagnad/vibepollo-homebrew/vibepollo-app
           brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
