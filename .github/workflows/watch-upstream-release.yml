@@ -195,7 +195,7 @@ jobs:
           if ! command -v ccache >/dev/null 2>&1; then
             missing+=(ccache)
           fi
-          if (('${#missing[@]}' > 0)); then
+          if ((${#missing[@]} > 0)); then
             sudo apt-get update
             sudo apt-get install --yes --no-install-recommends "${missing[@]}"
           fi
