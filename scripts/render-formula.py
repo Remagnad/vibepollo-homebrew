@@ -110,7 +110,6 @@ __BOTTLE_BLOCK__
         "-DCMAKE_CXX_COMPILER=#{cxx_compiler}",
         # -O2 retains release-grade optimization while substantially reducing C++ compile time.
         "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG",
-        "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG",
         "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG",
         "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold",
         "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold",

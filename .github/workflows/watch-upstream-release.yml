@@ -574,7 +574,9 @@ jobs:
             exit 1
           fi
 
-          brew install --force-bottle --ignore-dependencies Remagnad/vibepollo-homebrew/vibepollo-app
+          # Install the bottle with its declared runtime dependencies, just like an end user.
+          # In particular, openssl@3 must be present when the executable is tested.
+          brew install --force-bottle Remagnad/vibepollo-homebrew/vibepollo-app
           brew test Remagnad/vibepollo-homebrew/vibepollo-app
           brew linkage --test Remagnad/vibepollo-homebrew/vibepollo-app
 
