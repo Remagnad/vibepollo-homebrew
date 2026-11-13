@@ -243,8 +243,23 @@ jobs:
           echo "$ffmpeg_sha  dist/Linux-x86_64-ffmpeg.tar.gz" | sha256sum --check -
           mkdir -p dist/ffmpeg-prebuilt
           tar -xzf dist/Linux-x86_64-ffmpeg.tar.gz -C dist/ffmpeg-prebuilt
-          test -f dist/ffmpeg-prebuilt/lib/libavcodec.a
-          test -d dist/ffmpeg-prebuilt/include
+
+          # Release archives may wrap the prepared tree in a top-level directory.
+          # Locate the actual prepared root instead of assuming the tar layout.
+          ffmpeg_lib="$(find dist/ffmpeg-prebuilt -path '*/lib/libavcodec.a' -print -quit)"
+          if [[ -z "$ffmpeg_lib" ]]; then
+            echo "::error::FFmpeg archive has no lib/libavcodec.a. Extracted paths:"
+            find dist/ffmpeg-prebuilt -maxdepth 4 -print | head -n 200
+            exit 1
+          fi
+          ffmpeg_root="${ffmpeg_lib%/lib/libavcodec.a}"
+          if [[ ! -d "$ffmpeg_root/include" ]]; then
+            echo "::error::FFmpeg prepared root has no include directory: $ffmpeg_root"
+            find "$ffmpeg_root" -maxdepth 3 -print | head -n 200
+            exit 1
+          fi
+          echo "FFmpeg prepared root: $PWD/$ffmpeg_root"
+          echo "FFMPEG_PREPARED_BINARIES=$PWD/$ffmpeg_root" >> "$GITHUB_ENV"
 
       - name: Configure Debug build
         shell: bash
@@ -283,7 +298,7 @@ jobs:
             -DPYTHON_EXECUTABLE="$python" \
             -DGLAD_SKIP_PIP_INSTALL=ON \
             -DSUNSHINE_BUILD_HOMEBREW=ON \
-            -DFFMPEG_PREPARED_BINARIES="$PWD/dist/ffmpeg-prebuilt" \
+            -DFFMPEG_PREPARED_BINARIES="$FFMPEG_PREPARED_BINARIES" \
             -DSUNSHINE_ENABLE_CUDA=OFF \
             -DSUNSHINE_ENABLE_DRM=OFF \
             -DSUNSHINE_ENABLE_TRAY=ON \
