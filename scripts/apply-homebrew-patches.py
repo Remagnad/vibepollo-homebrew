@@ -101,26 +101,8 @@ endif()""",
     endif()
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FQDN}.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
-    if(SUNSHINE_ENABLE_TRAY AND SUNSHINE_TRAY STREQUAL "1")
-        install(PROGRAMS "${CMAKE_SOURCE_DIR}/packaging/linux/vibepollo-tray.py"
-                DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME "vibepollo-tray")
-        if(NOT SUNSHINE_HOMEBREW_TRAY_EXECUTABLE)
-            message(FATAL_ERROR "Homebrew tray executable path must be provided.")
-        endif()
-        file(READ "${CMAKE_SOURCE_DIR}/packaging/linux/vibepollo-tray.desktop.in"
-                VIBEPOLLO_HOMEBREW_TRAY_DESKTOP)
-        string(REPLACE "@CMAKE_INSTALL_FULL_BINDIR@/vibepollo-tray"
-                "${SUNSHINE_HOMEBREW_TRAY_EXECUTABLE}"
-                VIBEPOLLO_HOMEBREW_TRAY_DESKTOP
-                "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
-        string(REPLACE "@PROJECT_FQDN@" "${PROJECT_FQDN}"
-                VIBEPOLLO_HOMEBREW_TRAY_DESKTOP
-                "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vibepollo-tray.desktop"
-                "${VIBEPOLLO_HOMEBREW_TRAY_DESKTOP}")
-        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/vibepollo-tray.desktop"
-                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
-    endif()
+    # The active tray is compiled into the Vibepollo C++ process.
+    # Do not install the unused Python/PySide companion or its second launcher.
     install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/NOTICE"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/licenses/vibepollo")
     return()
