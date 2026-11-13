@@ -1,0 +1,439 @@
+name: Build Vibepollo Debug (Linux x86_64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Upstream Nonary/Vibepollo tag, branch or commit
+        required: true
+        default: "2.0.6"
+        type: string
+      version:
+        description: Build version used for packaging (numeric x.y.z)
+        required: true
+        default: "2.0.6"
+        type: string
+      expected_commit:
+        description: Expected full upstream commit SHA (leave empty to accept the resolved ref)
+        required: false
+        default: "5e6ed8594184212d429bb093d7fd47904c9a6fa6"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vibepollo-debug-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_AUTOREMOVE: "1"
+  HOMEBREW_DOWNLOAD_CONCURRENCY: "auto"
+
+jobs:
+  debug-build:
+    name: Build test package for Bazzite / Plasma
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out Homebrew tap and build scripts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate build inputs
+        shell: bash
+        env:
+          SOURCE_REF_INPUT: ${{ inputs.source_ref }}
+          VERSION_INPUT: ${{ inputs.version }}
+          EXPECTED_COMMIT_INPUT: ${{ inputs.expected_commit }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Version must use numeric x.y.z format."
+            exit 1
+          }
+          [[ "$SOURCE_REF_INPUT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || {
+            echo "::error::Invalid upstream ref."
+            exit 1
+          }
+          if [[ -n "$EXPECTED_COMMIT_INPUT" && ! "$EXPECTED_COMMIT_INPUT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Expected commit must be a full 40-character SHA or empty."
+            exit 1
+          fi
+          {
+            echo "SOURCE_REF=$SOURCE_REF_INPUT"
+            echo "BUILD_VERSION=$VERSION_INPUT"
+            echo "EXPECTED_COMMIT=$EXPECTED_COMMIT_INPUT"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        with:
+          core: false
+          cask: false
+
+      - name: Export Homebrew paths
+        id: brew-paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          prefix="$(brew --prefix)"
+          cellar="$(brew --cellar)"
+          cache_dir="$(brew --cache)"
+          {
+            echo "HOMEBREW_PREFIX=$prefix"
+            echo "HOMEBREW_CELLAR=$cellar"
+            echo "HOMEBREW_CACHE_DIR=$cache_dir"
+          } >> "$GITHUB_ENV"
+          {
+            echo "prefix=$prefix"
+            echo "cellar=$cellar"
+            echo "cache_dir=$cache_dir"
+          } >> "$GITHUB_OUTPUT"
+          echo "Homebrew prefix: $prefix"
+          test "$prefix" = "/home/linuxbrew/.linuxbrew"
+
+      - name: Compute Homebrew dependency cache epoch
+        id: deps-cache
+        shell: bash
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Homebrew dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.brew-paths.outputs.cellar }}
+            ${{ steps.brew-paths.outputs.prefix }}/opt
+            ${{ steps.brew-paths.outputs.prefix }}/bin
+            ${{ steps.brew-paths.outputs.prefix }}/sbin
+            ${{ steps.brew-paths.outputs.prefix }}/include
+            ${{ steps.brew-paths.outputs.prefix }}/lib
+            ${{ steps.brew-paths.outputs.prefix }}/share
+            ${{ steps.brew-paths.outputs.prefix }}/etc
+            ${{ steps.brew-paths.outputs.prefix }}/Frameworks
+            ${{ steps.brew-paths.outputs.cache_dir }}/downloads
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-${{ steps.deps-cache.outputs.week }}
+          restore-keys: |
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
+
+      - name: Unlink cached D-Bus before dependency upgrades
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if brew list --versions dbus >/dev/null 2>&1; then
+            brew unlink dbus
+          fi
+
+      - name: Install system headers and compiler cache
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get install --yes --no-install-recommends libudev-dev ccache
+
+      - name: Restore Debug compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/Homebrew/vibepollo-debug-ccache
+          key: vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
+          restore-keys: |
+            vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-
+          save-always: true
+
+      - name: Configure compiler cache
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOME/.cache/Homebrew/vibepollo-debug-ccache"
+          {
+            echo "CCACHE_DIR=$HOME/.cache/Homebrew/vibepollo-debug-ccache"
+            echo "CCACHE_MAXSIZE=3G"
+            echo "CCACHE_COMPILERCHECK=content"
+          } >> "$GITHUB_ENV"
+          ccache --zero-stats
+          echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME")"
+          echo "GLIBC: $(getconf GNU_LIBC_VERSION)"
+          echo "Homebrew: $(brew --version | head -n1)"
+
+      - name: Register local tap and install formula dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          formula="Remagnad/vibepollo-homebrew/vibepollo-app"
+          brew tap-new --no-git Remagnad/vibepollo-homebrew
+          tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
+          mkdir -p "$tap_path/Formula"
+          cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+
+          mapfile -t dependencies < <(brew deps --include-build --formula "$formula")
+          if ((${#dependencies[@]} == 0)); then
+            echo "::error::Homebrew returned no formula dependencies."
+            exit 1
+          fi
+          printf 'Installing %s Homebrew dependencies (including build dependencies).\n' "${#dependencies[@]}"
+          brew install "${dependencies[@]}"
+
+          cmake_prefix="$HOMEBREW_PREFIX"
+          pkgconfig_paths=()
+          for dependency in "${dependencies[@]}"; do
+            dependency_prefix="$(brew --prefix "$dependency")"
+            cmake_prefix="$cmake_prefix;$dependency_prefix"
+            for candidate in "$dependency_prefix/lib/pkgconfig" "$dependency_prefix/share/pkgconfig"; do
+              [[ ! -d "$candidate" ]] || pkgconfig_paths+=("$candidate")
+            done
+          done
+          pkgconfig_path="$(printf '%s:' "${pkgconfig_paths[@]}")"
+          pkgconfig_path="${pkgconfig_path%:}"
+          {
+            echo "CMAKE_PREFIX_PATH=$cmake_prefix"
+            echo "PKG_CONFIG_PATH=$pkgconfig_path"
+          } >> "$GITHUB_ENV"
+
+      - name: Fetch exact upstream source and apply Homebrew patches
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist/source
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH="$(date -u +%s)"
+          bash .github/scripts/prepare-debug-source.sh \
+            "$SOURCE_REF" "$EXPECTED_COMMIT" "$BUILD_VERSION" \
+            "$PWD/dist/vibepollo-source.tar.gz"
+          tar -xzf dist/vibepollo-source.tar.gz -C dist/source
+          echo "SOURCE_DIR=$PWD/dist/source/Vibepollo-$BUILD_VERSION" >> "$GITHUB_ENV"
+          cat "dist/source/Vibepollo-$BUILD_VERSION/HOMEBREW-UPSTREAM.json"
+
+      - name: Download and verify pinned FFmpeg binaries
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ffmpeg_pin="$(python3 - "$SOURCE_DIR/cmake/dependencies/ffmpeg-release.cmake" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+
+          source = Path(sys.argv[1]).read_text(encoding="utf-8")
+          def value(name):
+              values = re.findall(r'set\(' + re.escape(name) + r'\s+"([^"]+)"\)', source)
+              if not values:
+                  raise SystemExit(f"Missing upstream FFmpeg pin: {name}")
+              return values[-1]
+          repo = value("FFMPEG_GITHUB_REPO")
+          tag = value("FFMPEG_RELEASE_TAG")
+          digest = value("FFMPEG_SHA256_Linux_x86_64")
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+              raise SystemExit("Invalid FFmpeg repository")
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+", tag):
+              raise SystemExit("Invalid FFmpeg tag")
+          if not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("Invalid FFmpeg SHA-256")
+          print(json.dumps({"url": f"https://github.com/{repo}/releases/download/{tag}/Linux-x86_64-ffmpeg.tar.gz", "sha256": digest}))
+          PY
+          )"
+          ffmpeg_url="$(jq -r '.url' <<<"$ffmpeg_pin")"
+          ffmpeg_sha="$(jq -r '.sha256' <<<"$ffmpeg_pin")"
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 600 \
+            "$ffmpeg_url" -o dist/Linux-x86_64-ffmpeg.tar.gz
+          echo "$ffmpeg_sha  dist/Linux-x86_64-ffmpeg.tar.gz" | sha256sum --check -
+          mkdir -p dist/ffmpeg-prebuilt
+          tar -xzf dist/Linux-x86_64-ffmpeg.tar.gz -C dist/ffmpeg-prebuilt
+          test -f dist/ffmpeg-prebuilt/lib/libavcodec.a
+          test -d dist/ffmpeg-prebuilt/include
+
+      - name: Configure Debug build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gcc_bin="$(brew --prefix gcc@14)/bin"
+          jinja_cli="$(brew --prefix jinja2-cli)/bin/jinja2"
+          python="$(head -n1 "$jinja_cli" | sed 's/^#!//')"
+          test -x "$python"
+          "$python" -c 'import jinja2'
+          export TAG="$BUILD_VERSION"
+          export COMMIT="$(jq -r '.commit' "$SOURCE_DIR/HOMEBREW-UPSTREAM.json")"
+          export BUILD_VERSION
+          {
+            echo "TAG=$TAG"
+            echo "COMMIT=$COMMIT"
+          } >> "$GITHUB_ENV"
+
+          cmake -S "$SOURCE_DIR" -B build-debug -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER="$gcc_bin/gcc-14" \
+            -DCMAKE_CXX_COMPILER="$gcc_bin/g++-14" \
+            -DCMAKE_C_FLAGS_DEBUG="-Og -g3 -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS_DEBUG="-Og -g3 -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=mold" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=mold" \
+            -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=mold" \
+            -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/dist/vibepollo-debug/root" \
+            -DCMAKE_INSTALL_BINDIR=bin \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_INSTALL_DATADIR=share \
+            -DSUNSHINE_ASSETS_DIR=share/vibepollo \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DPython_EXECUTABLE="$python" \
+            -DPYTHON_EXECUTABLE="$python" \
+            -DGLAD_SKIP_PIP_INSTALL=ON \
+            -DSUNSHINE_BUILD_HOMEBREW=ON \
+            -DFFMPEG_PREPARED_BINARIES="$PWD/dist/ffmpeg-prebuilt" \
+            -DSUNSHINE_ENABLE_CUDA=OFF \
+            -DSUNSHINE_ENABLE_DRM=OFF \
+            -DSUNSHINE_ENABLE_TRAY=ON \
+            -DSUNSHINE_ENABLE_PYROWAVE=ON \
+            -DSUNSHINE_ENABLE_VAAPI=ON \
+            -DSUNSHINE_ENABLE_VULKAN=ON \
+            -DSUNSHINE_ENABLE_WAYLAND=ON \
+            -DSUNSHINE_ENABLE_X11=ON \
+            -DSUNSHINE_ENABLE_KWIN=ON \
+            -DSUNSHINE_ENABLE_PORTAL=ON \
+            -DSUNSHINE_ENABLE_GAMESCOPE=ON \
+            -DSUNSHINE_SYSTEM_VULKAN_HEADERS=ON \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_DOCS=OFF \
+            -DBOOST_USE_STATIC=OFF \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUILD_VIRTUALDISPLAY_TOOLS=OFF \
+            -DBUILD_VIRTUALDISPLAY_PROBE=OFF \
+            -DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF \
+            -DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            2>&1 | tee dist/diagnostics-cmake-configure.log
+
+      - name: Compile and stage Debug application
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cmake --build build-debug --parallel 6 2>&1 | tee dist/diagnostics-build.log
+          cmake --install build-debug 2>&1 | tee dist/diagnostics-install.log
+          root="$PWD/dist/vibepollo-debug/root"
+          versioned="$root/bin/vibepollo-$BUILD_VERSION"
+          test -x "$versioned" || {
+            echo "::error::CMake did not install the expected versioned executable: $versioned"
+            find "$root/bin" -maxdepth 1 \( -type f -o -type l \)
+            exit 1
+          }
+          mkdir -p "$root/libexec"
+          mv "$versioned" "$root/libexec/vibepollo-bin"
+          rm -f "$root/bin/vibepollo"
+          cat > "$root/bin/vibepollo" <<'SH'
+          #!/bin/sh
+          set -eu
+          if [ -z "${DBUS_SYSTEM_BUS_ADDRESS:-}" ]; then
+            for bus_socket in /run/dbus/system_bus_socket /var/run/dbus/system_bus_socket; do
+              if [ -S "$bus_socket" ]; then
+                DBUS_SYSTEM_BUS_ADDRESS="unix:path=$bus_socket"
+                export DBUS_SYSTEM_BUS_ADDRESS
+                break
+              fi
+            done
+          fi
+          launcher_path="$(readlink -f -- "$0")" || exit 126
+          case "$launcher_path" in
+            */bin/vibepollo) formula_prefix="${launcher_path%/bin/vibepollo}" ;;
+            *)
+              echo "vibepollo-debug: cannot resolve package root" >&2
+              exit 126
+              ;;
+          esac
+          xdg_data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          case ":$xdg_data_dirs:" in
+            *":$formula_prefix/share:"*) ;;
+            *) xdg_data_dirs="$formula_prefix/share:$xdg_data_dirs" ;;
+          esac
+          XDG_DATA_DIRS="$xdg_data_dirs"
+          export XDG_DATA_DIRS
+          VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
+          export VIBEPOLLO_ICON_THEME_PATH
+          exec "$formula_prefix/libexec/vibepollo-bin" "$@"
+          SH
+          chmod 0755 "$root/bin/vibepollo"
+
+          cat > dist/vibepollo-debug/run-debug.sh <<'SH'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+          if pgrep -x vibepollo >/dev/null 2>&1 || pgrep -x vibepollo-bin >/dev/null 2>&1; then
+            echo "A Vibepollo process is already running. Stop the installed service/app before testing this build." >&2
+            exit 1
+          fi
+          exec "$here/root/bin/vibepollo" "$@"
+          SH
+          chmod 0755 dist/vibepollo-debug/run-debug.sh
+
+          cat > dist/vibepollo-debug/README-TESTE.txt <<EOF
+          VIBEPOLLO DEBUG - Linux x86_64
+          Source ref: $SOURCE_REF
+          Source commit: $COMMIT
+          Build version: $BUILD_VERSION
+          Build type: Debug (-Og -g3 -fno-omit-frame-pointer)
+          Homebrew prefix expected at runtime: /home/linuxbrew/.linuxbrew
+
+          TESTE NO BAZZITE
+          1. Extraia este arquivo em uma pasta.
+          2. Pare o Vibepollo instalado (servico/processo) antes de iniciar esta build.
+          3. No terminal, entre na pasta extraida e execute: ./run-debug.sh
+          4. Teste a tray C++ no Plasma e encerre pelo proprio menu/processo.
+          5. Copie o log do Vibepollo e qualquer mensagem do terminal para o relatorio.
+
+          A build e isolada: nao instala nem altera a Formula, a bottle ou os servicos.
+          Ela usa as bibliotecas ja instaladas no prefixo Homebrew acima e os recursos
+          incluidos em root/. O launcher acrescenta root/share ao XDG_DATA_DIRS e define
+          VIBEPOLLO_ICON_THEME_PATH para os icones AppIndicator desta build.
+          O executavel inclui simbolos Debug. A configuracao do usuario e a mesma da
+          instalacao normal; nao execute as duas instancias simultaneamente.
+          EOF
+
+          cat > dist/vibepollo-debug/BUILD-INFO.txt <<EOF
+          upstream=https://github.com/Nonary/Vibepollo
+          source_ref=$SOURCE_REF
+          source_commit=$COMMIT
+          build_version=$BUILD_VERSION
+          build_type=Debug
+          c_compiler=$("$gcc_bin/gcc-14" --version | head -n1)
+          cxx_compiler=$("$gcc_bin/g++-14" --version | head -n1)
+          cmake_version=$(cmake --version | head -n1)
+          homebrew_prefix=$HOMEBREW_PREFIX
+          EOF
+
+          binary="$root/libexec/vibepollo-bin"
+          readelf -S "$binary" | grep -q '\.debug_info' || {
+            echo "::error::Debug symbols are missing from the packaged executable."
+            exit 1
+          }
+          mkdir -p dist/diagnostics
+          cp build-debug/CMakeCache.txt build-debug/compile_commands.json dist/diagnostics/
+          readelf -d "$binary" > dist/diagnostics/elf-dynamic.txt
+          ldd "$binary" | tee dist/diagnostics/ldd.txt
+          if grep -q 'not found' dist/diagnostics/ldd.txt; then
+            echo "::error::Debug executable has unresolved runtime libraries."
+            exit 1
+          fi
+          file "$binary" > dist/diagnostics/file.txt
+          ccache --show-stats > dist/diagnostics/ccache.txt
+          tar -czf "dist/vibepollo-debug-linux-x86_64-${BUILD_VERSION}.tar.gz" -C dist vibepollo-debug
+          sha256sum "dist/vibepollo-debug-linux-x86_64-${BUILD_VERSION}.tar.gz" \
+            | tee "dist/vibepollo-debug-linux-x86_64-${BUILD_VERSION}.sha256"
+
+      - name: Upload Debug package and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vibepollo-debug-linux-x86_64-${{ inputs.version }}-${{ github.run_number }}
+          path: |
+            dist/vibepollo-debug-linux-x86_64-*.tar.gz
+            dist/vibepollo-debug-linux-x86_64-*.sha256
+            dist/diagnostics/
+            dist/diagnostics-*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report compiler cache statistics
+        if: always()
+        shell: bash
+        run: ccache --show-stats || true
