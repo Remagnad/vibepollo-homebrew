@@ -273,9 +273,16 @@ jobs:
           export TAG="$BUILD_VERSION"
           export COMMIT="$(jq -r '.commit' "$SOURCE_DIR/HOMEBREW-UPSTREAM.json")"
           export BUILD_VERSION
+          openssl_prefix="$(brew --prefix openssl@3)"
+          test -f "$openssl_prefix/include/openssl/ssl.h"
+          test -f "$openssl_prefix/lib/libssl.so.3"
+          test -f "$openssl_prefix/lib/libcrypto.so.3"
+          echo "Debug build OpenSSL: $("$openssl_prefix/bin/openssl" version)"
+          echo "OPENSSL_ROOT_DIR=$openssl_prefix"
           {
             echo "TAG=$TAG"
             echo "COMMIT=$COMMIT"
+            echo "OPENSSL_ROOT_DIR=$openssl_prefix"
           } >> "$GITHUB_ENV"
 
           cmake -S "$SOURCE_DIR" -B build-debug -G Ninja \
@@ -294,6 +301,10 @@ jobs:
             -DCMAKE_INSTALL_DATADIR=share \
             -DSUNSHINE_ASSETS_DIR=share/vibepollo \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+            -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT_DIR/include" \
+            -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT_DIR/lib/libssl.so" \
+            -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT_DIR/lib/libcrypto.so" \
             -DPython_EXECUTABLE="$python" \
             -DPYTHON_EXECUTABLE="$python" \
             -DGLAD_SKIP_PIP_INSTALL=ON \
@@ -323,6 +334,17 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             2>&1 | tee dist/diagnostics-cmake-configure.log
+
+          # Fail before compilation if CMake silently selects a different OpenSSL.
+          for variable in OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY; do
+            value="$(sed -n "s/^$variable:FILEPATH=//p" build-debug/CMakeCache.txt | tail -n1)"
+            if [[ "$value" != "$OPENSSL_ROOT_DIR/"* ]]; then
+              echo "::error::CMake selected $variable outside OpenSSL 3: $value"
+              grep -E '^OPENSSL_(INCLUDE_DIR|SSL_LIBRARY|CRYPTO_LIBRARY):' build-debug/CMakeCache.txt || true
+              exit 1
+            fi
+            echo "$variable=$value"
+          done
 
       - name: Compile and stage Debug application
         shell: bash
