@@ -182,7 +182,6 @@ jobs:
           key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
             vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
-            vibepollo-homebrew-deps-ubuntu-22.04-x86_64-
 
       - name: Report Linux ABI baseline
         shell: bash
@@ -215,6 +214,8 @@ jobs:
           key: vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
           restore-keys: |
             vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-
+          # Preserve compiler results even when later bottle verification fails.
+          save-always: true
 
       - name: Report restored compiler cache state
         shell: bash
