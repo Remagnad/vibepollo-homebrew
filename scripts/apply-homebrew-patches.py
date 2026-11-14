@@ -285,6 +285,29 @@ endif()""",
         return;
       }""",
     )
+    # Native NVENC needs its own PipeWire device factory. The synthetic
+    # encoder probe already implements this factory, but PipeWire's shared
+    # display class only implemented the FFmpeg/AVCodec CUDA factory. Restrict
+    # native GL/CUDA NVENC to a NVIDIA capture device with advertised DMA-BUFs.
+    insert_before_once(
+        root / "src/platform/linux/pipewire.cpp",
+        "    int dummy_img(platf::img_t *img) override {",
+        """    std::unique_ptr<platf::nvenc_encode_device_t> make_nvenc_encode_device(platf::pix_fmt_e pix_fmt) override {
+      (void) pix_fmt;
+#ifdef SUNSHINE_BUILD_CUDA
+      // Native NVENC imports the active NVIDIA display's DMA-BUFs through GL/CUDA.
+      // Do not offer it for hybrid or CPU-buffer capture: another GPU's DMA-BUF
+      // cannot be imported into the NVIDIA CUDA context.
+      if (mem_type == platf::mem_type_e::cuda && display_is_nvidia && n_dmabuf_infos > 0) {
+        return cuda::make_nvenc_gl_encode_device(width, height, 0, 0, pix_fmt);
+      }
+#endif
+      return nullptr;
+    }
+
+""",
+    )
+
     # Vulkan's encoder in vulkan_encode.cpp imports DMA-BUF exclusively.
     # The generic PipeWire MemPtr/MemFd fallback creates descriptors without a
     # DMA-BUF FD, which this encoder cannot upload or import. Keep that fallback
@@ -332,6 +355,7 @@ endif()""",
         }""",
     )
 
+    print("Applied the PipeWire native NVENC device factory fix.")
     print("Applied the Linux AppIndicator shutdown cleanup fix.")
     print("Applied the RTSP shutdown cancellation fix.")
     print("Applied the Linux Homebrew CMake port patch.")
