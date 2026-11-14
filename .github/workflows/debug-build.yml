@@ -156,8 +156,10 @@ jobs:
           echo "GLIBC: $(getconf GNU_LIBC_VERSION)"
           echo "Homebrew: $(brew --version | head -n1)"
 
-      - name: Add the pinned CUDA Toolkit formula tap
-        run: brew tap LizardByte/homebrew
+      - name: Add and trust the pinned CUDA Toolkit formula tap
+        run: |
+          brew tap LizardByte/homebrew
+          brew trust --formula lizardbyte/homebrew/cuda@12.9
 
       - name: Register local tap and install formula dependencies
         shell: bash
@@ -179,6 +181,9 @@ jobs:
             exit 1
           fi
           printf 'Installing %s Homebrew dependencies (including build dependencies).\n' "${#dependencies[@]}"
+          if brew list --versions cmake >/dev/null 2>&1; then
+            brew unlink cmake || true
+          fi
           brew install "${dependencies[@]}"
 
           cmake_prefix="$HOMEBREW_PREFIX"
