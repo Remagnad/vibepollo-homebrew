@@ -156,6 +156,9 @@ jobs:
           echo "GLIBC: $(getconf GNU_LIBC_VERSION)"
           echo "Homebrew: $(brew --version | head -n1)"
 
+      - name: Add the pinned CUDA Toolkit formula tap
+        run: brew tap LizardByte/homebrew
+
       - name: Register local tap and install formula dependencies
         shell: bash
         run: |
@@ -311,7 +314,11 @@ jobs:
             -DGLAD_SKIP_PIP_INSTALL=ON \
             -DSUNSHINE_BUILD_HOMEBREW=ON \
             -DFFMPEG_PREPARED_BINARIES="$FFMPEG_PREPARED_BINARIES" \
-            -DSUNSHINE_ENABLE_CUDA=OFF \
+            -DSUNSHINE_ENABLE_CUDA=ON \
+            -DSUNSHINE_REQUIRE_CUDA_PASCAL=ON \
+            -DCMAKE_CUDA_COMPILER:PATH="$(brew --prefix cuda@12.9)/homebrew/bin/nvcc" \
+            -DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH="$(brew --prefix cuda@12.9)" \
+            -DCMAKE_CUDA_HOST_COMPILER="$gcc_bin/g++-14" \
             -DSUNSHINE_ENABLE_DRM=OFF \
             -DSUNSHINE_ENABLE_TRAY=ON \
             -DSUNSHINE_ENABLE_PYROWAVE=ON \
@@ -353,6 +360,13 @@ jobs:
           set -Eeuo pipefail
           cmake --build build-debug --parallel 6 2>&1 | tee dist/diagnostics-build.log
           cmake --install build-debug 2>&1 | tee dist/diagnostics-install.log
+          cuda_cuobjdump="$(brew --prefix cuda@12.9)/bin/cuobjdump"
+          "$cuda_cuobjdump" --list-elf build-debug/vibepollo > dist/diagnostics-cuda-elfs.txt
+          grep -q "sm_61\\." dist/diagnostics-cuda-elfs.txt || {
+            echo "::error::Debug CUDA binary is missing Pascal sm_61 device code."
+            cat dist/diagnostics-cuda-elfs.txt
+            exit 1
+          }
           root="$PWD/dist/vibepollo-debug/root"
           versioned="$root/bin/vibepollo-$BUILD_VERSION"
           test -x "$versioned" || {
