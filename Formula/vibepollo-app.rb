@@ -7,18 +7,18 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "3b9d61983ced81d3397e5aace24fa3812313622754418f3f163107590ec675e5"
+    sha256 x86_64_linux: "e9777482ae34504c759a2901f1440d0f2da155c346c742c661131d29f8612d91"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
+  depends_on "lizardbyte/homebrew/cuda@12.9" => :build
   depends_on "mold" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
-  depends_on "lizardbyte/homebrew/cuda@12.9" => :build
   depends_on "node" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
@@ -196,7 +196,7 @@ class VibepolloApp < Formula
       odie "Versioned Vibepollo executable was not installed by CMake" unless versioned_binary.executable?
       # Match upstream release validation: the bottle must contain native Pascal sm_61 code.
       cuda_elfs = Utils.safe_popen_read(cuda_cuobjdump, "--list-elf", versioned_binary)
-      odie "CUDA build is missing Pascal sm_61 device code" unless cuda_elfs.match?(/sm_61\./)
+      odie "CUDA build is missing Pascal sm_61 device code" unless cuda_elfs.include?("sm_61.")
       vibepollo_link = bin/"vibepollo"
       odie "Expected CMake to install bin/vibepollo as a symlink" unless vibepollo_link.symlink?
       libexec.mkpath
