@@ -114,9 +114,9 @@ jobs:
             ${{ steps.brew-paths.outputs.prefix }}/etc
             ${{ steps.brew-paths.outputs.prefix }}/Frameworks
             ${{ steps.brew-paths.outputs.cache_dir }}/downloads
-          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-${{ steps.deps-cache.outputs.week }}
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
-            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-
 
       - name: Unlink cached D-Bus before dependency upgrades
         shell: bash
