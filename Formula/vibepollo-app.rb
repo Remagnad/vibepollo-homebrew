@@ -14,7 +14,6 @@ class VibepolloApp < Formula
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
-  depends_on "lizardbyte/homebrew/cuda@12.9" => :build
   depends_on "mold" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
@@ -67,6 +66,8 @@ class VibepolloApp < Formula
   UPSTREAM_TAG = "2.0.6".freeze
   UPSTREAM_COMMIT = "5e6ed8594184212d429bb093d7fd47904c9a6fa6".freeze
 
+  # Resolved only by source builds. Do not declare this external tap as a dependency:
+  # Homebrew otherwise requires the user to tap it even when pouring our bottle.
   CUDA_FORMULA = "lizardbyte/homebrew/cuda@12.9".freeze
   CUDA_VERSION = "12.9".freeze
 
@@ -246,9 +247,10 @@ class VibepolloApp < Formula
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
       or kernel modules. Managed virtual displays also require the separate
-      driver and machine-integration packages. This bottle is compiled with
-      CUDA Toolkit 12.9.1 (build-time only) and requires a compatible NVIDIA driver
-      to use NVIDIA acceleration. The C++ AppIndicator tray
+      driver and machine-integration packages. This bottle was compiled with
+      CUDA Toolkit 12.9.1, but the Toolkit is not an installation dependency;
+      a compatible NVIDIA driver is still required for NVIDIA acceleration.
+      Source builds require the LizardByte CUDA 12.9 tap formula. The C++ AppIndicator tray
       is built into Vibepollo; login autostart is reserved for the Cask integration.
     EOS
   end

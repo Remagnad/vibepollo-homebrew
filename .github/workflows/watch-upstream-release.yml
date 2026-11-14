@@ -441,6 +441,12 @@ jobs:
           test ! -e "$(brew --cellar)/vibepollo-app"
           test ! -e "$(brew --prefix)/opt/vibepollo-app"
 
+      - name: Install pinned CUDA Toolkit for the source build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          brew install lizardbyte/homebrew/cuda@12.9
+
       - name: Register the working tree as a local Homebrew tap
         shell: bash
         run: |
@@ -675,11 +681,6 @@ jobs:
         with:
           core: false
           cask: false
-
-      - name: Add and trust the pinned CUDA Toolkit formula tap
-        run: |
-          brew tap LizardByte/homebrew
-          brew trust --formula lizardbyte/homebrew/cuda@12.9
 
       - name: Create a local tap for formula validation
         run: |

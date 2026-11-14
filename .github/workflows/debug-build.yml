@@ -161,6 +161,12 @@ jobs:
           brew tap LizardByte/homebrew
           brew trust --formula lizardbyte/homebrew/cuda@12.9
 
+      - name: Install pinned CUDA Toolkit for the Debug source build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          brew install lizardbyte/homebrew/cuda@12.9
+
       - name: Register local tap and install formula dependencies
         shell: bash
         run: |
@@ -195,6 +201,10 @@ jobs:
               [[ ! -d "$candidate" ]] || pkgconfig_paths+=("$candidate")
             done
           done
+          # The CUDA Toolkit is intentionally not listed in formula dependencies;
+          # preserve its prefix for this source build after installing it explicitly.
+          cuda_prefix="$(brew --prefix cuda@12.9)"
+          cmake_prefix="$cmake_prefix;$cuda_prefix"
           pkgconfig_path="$(printf '%s:' "${pkgconfig_paths[@]}")"
           pkgconfig_path="${pkgconfig_path%:}"
           {

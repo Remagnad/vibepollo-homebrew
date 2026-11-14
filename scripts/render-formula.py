@@ -26,7 +26,8 @@ __BOTTLE_BLOCK__
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
-  depends_on "lizardbyte/homebrew/cuda@12.9" => :build
+  # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
+  # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "mold" => :build
   depends_on "node" => :build
   depends_on "pkgconf" => :build
@@ -76,6 +77,7 @@ __BOTTLE_BLOCK__
   UPSTREAM_TAG = "__UPSTREAM_TAG__".freeze
   UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__".freeze
 
+  # Resolved only by source builds. CI installs this toolchain explicitly.
   CUDA_FORMULA = "lizardbyte/homebrew/cuda@12.9".freeze
   CUDA_VERSION = "12.9".freeze
 
@@ -256,9 +258,10 @@ __BOTTLE_BLOCK__
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
       or kernel modules. Managed virtual displays also require the separate
-      driver and machine-integration packages. This bottle is compiled with
-      CUDA Toolkit 12.9.1 (build-time only) and requires a compatible NVIDIA driver
-      to use NVIDIA acceleration. The C++ AppIndicator tray
+      driver and machine-integration packages. This bottle was compiled with
+      CUDA Toolkit 12.9.1, but the Toolkit is not an installation dependency;
+      a compatible NVIDIA driver is still required for NVIDIA acceleration.
+      Source builds require the LizardByte CUDA 12.9 tap formula. The C++ AppIndicator tray
       is built into Vibepollo; login autostart is reserved for the Cask integration.
     EOS
   end
