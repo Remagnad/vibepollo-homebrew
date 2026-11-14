@@ -25,6 +25,8 @@ __BOTTLE_BLOCK__
   depends_on "jinja2-cli" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
+  # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
+  depends_on "lizardbyte/homebrew/cuda@12.9" => :build
   depends_on "mold" => :build
   depends_on "node" => :build
   depends_on "pkgconf" => :build
@@ -74,6 +76,9 @@ __BOTTLE_BLOCK__
   UPSTREAM_TAG = "__UPSTREAM_TAG__".freeze
   UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__".freeze
 
+  CUDA_FORMULA = "lizardbyte/homebrew/cuda@12.9".freeze
+  CUDA_VERSION = "12.9".freeze
+
   # Homebrew fetches this resource before entering the build sandbox.
   resource "ffmpeg" do
     url "__FFMPEG_URL__"
@@ -88,6 +93,16 @@ __BOTTLE_BLOCK__
     gcc_bin = formula_opt_bin("gcc@14")
     c_compiler = gcc_bin/"gcc-14"
     cxx_compiler = gcc_bin/"g++-14"
+
+    # Use the same pinned CUDA Toolkit policy as Vibepollo upstream Linux releases.
+    cuda_formula = Formula[CUDA_FORMULA]
+    cuda_prefix = cuda_formula.opt_libexec
+    cuda_nvcc = cuda_prefix/"homebrew/bin/nvcc"
+    cuda_cuobjdump = cuda_prefix/"bin/cuobjdump"
+    odie "Pinned CUDA nvcc is missing: #{cuda_nvcc}" unless cuda_nvcc.executable?
+    odie "Pinned CUDA cuobjdump is missing: #{cuda_cuobjdump}" unless cuda_cuobjdump.executable?
+    nvcc_version = Utils.safe_popen_read(cuda_nvcc, "--version")
+    odie "Expected CUDA Toolkit 12.9, got: #{nvcc_version}" unless nvcc_version.include?("release #{CUDA_VERSION},")
 
     jinja_cli = formula_opt_bin("jinja2-cli")/"jinja2"
     python = Utils.safe_popen_read("head", "-n1", jinja_cli).strip.delete_prefix("#!")
@@ -125,7 +140,11 @@ __BOTTLE_BLOCK__
         "-DGLAD_SKIP_PIP_INSTALL=ON",
         "-DSUNSHINE_BUILD_HOMEBREW=ON",
         "-DFFMPEG_PREPARED_BINARIES=#{ffmpeg_prepared_binaries}",
-        "-DSUNSHINE_ENABLE_CUDA=OFF",
+        "-DSUNSHINE_ENABLE_CUDA=ON",
+        "-DSUNSHINE_REQUIRE_CUDA_PASCAL=ON",
+        "-DCMAKE_CUDA_COMPILER:PATH=#{cuda_nvcc}",
+        "-DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH=#{cuda_prefix}",
+        "-DCMAKE_CUDA_HOST_COMPILER=#{cxx_compiler}",
         "-DSUNSHINE_ENABLE_DRM=OFF",
         "-DSUNSHINE_ENABLE_TRAY=ON",
         "-DSUNSHINE_ENABLE_PYROWAVE=ON",
@@ -184,6 +203,9 @@ __BOTTLE_BLOCK__
       # bin/vibepollo a symlink. Move the real file, not the symlink.
       versioned_binary = bin/"vibepollo-#{version}"
       odie "Versioned Vibepollo executable was not installed by CMake" unless versioned_binary.executable?
+      # Match upstream release validation: the bottle must contain native Pascal sm_61 code.
+      cuda_elfs = Utils.safe_popen_read(cuda_cuobjdump, "--list-elf", versioned_binary)
+      odie "CUDA build is missing Pascal sm_61 device code" unless cuda_elfs.match?(/sm_61\./)
       vibepollo_link = bin/"vibepollo"
       odie "Expected CMake to install bin/vibepollo as a symlink" unless vibepollo_link.symlink?
       libexec.mkpath
@@ -234,7 +256,9 @@ __BOTTLE_BLOCK__
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
       or kernel modules. Managed virtual displays also require the separate
-      driver and machine-integration packages. The C++ AppIndicator tray
+      driver and machine-integration packages. This bottle is compiled with
+      CUDA Toolkit 12.9.1 (build-time only) and requires a compatible NVIDIA driver
+      to use NVIDIA acceleration. The C++ AppIndicator tray
       is built into Vibepollo; login autostart is reserved for the Cask integration.
     EOS
   end
