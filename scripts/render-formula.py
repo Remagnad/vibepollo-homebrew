@@ -362,7 +362,7 @@ __BOTTLE_BLOCK__
 
     nvidia_env_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
-      "PATH=#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "PATH=#{no_vendor_bin}:#{graphics_bin_dir}:#{ENV["PATH"]}",
       "LD_PRELOAD=#{existing_preload}",
       launcher_test.to_s, "--wrapper-test"
     )
@@ -396,7 +396,7 @@ __BOTTLE_BLOCK__
     fake_ldconfig.chmod(0755)
     incomplete_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
-      "PATH=#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "PATH=#{no_vendor_bin}:#{graphics_bin_dir}:#{ENV["PATH"]}",
       "LD_PRELOAD=#{existing_preload}",
       launcher_test.to_s, "--wrapper-test"
     )
