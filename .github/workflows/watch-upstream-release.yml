@@ -139,8 +139,10 @@ jobs:
           core: false
           cask: false
 
-      - name: Add the pinned CUDA Toolkit formula tap
-        run: brew tap LizardByte/homebrew
+      - name: Add and trust the pinned CUDA Toolkit formula tap
+        run: |
+          brew tap LizardByte/homebrew
+          brew trust --formula lizardbyte/homebrew/cuda@12.9
 
       - name: Export Homebrew cache paths
         id: brew-paths
@@ -470,6 +472,11 @@ jobs:
             -o /dev/null
           curl --fail --silent http://127.0.0.1:8766/Linux-x86_64-ffmpeg.tar.gz -o /dev/null
 
+          # The restored dependency cache may leave an older CMake keg linked.
+          # Unlink it before Homebrew upgrades the formula to avoid self-conflicts.
+          if brew list --versions cmake >/dev/null 2>&1; then
+            brew unlink cmake || true
+          fi
           brew install --build-bottle Remagnad/vibepollo-homebrew/vibepollo-app
           rm -f dist/Linux-x86_64-ffmpeg.tar.gz
 
@@ -663,8 +670,10 @@ jobs:
           core: false
           cask: false
 
-      - name: Add the pinned CUDA Toolkit formula tap
-        run: brew tap LizardByte/homebrew
+      - name: Add and trust the pinned CUDA Toolkit formula tap
+        run: |
+          brew tap LizardByte/homebrew
+          brew trust --formula lizardbyte/homebrew/cuda@12.9
 
       - name: Create a local tap for formula validation
         run: |
