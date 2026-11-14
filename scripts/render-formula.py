@@ -357,7 +357,7 @@ __BOTTLE_BLOCK__
     full_cache = graphics_sonames.map do |soname|
       " #{soname} (libc6,x86-64) => #{graphics_lib_dir/soname}"
     end.join("\n")
-    fake_ldconfig.write("#!/bin/sh\ncat <<'CACHE'\n#{full_cache}\nCACHE\n")
+    File.write(fake_ldconfig, "#!/bin/sh\ncat <<'CACHE'\n#{full_cache}\nCACHE\n")
     fake_ldconfig.chmod(0755)
 
     nvidia_env_output = Utils.safe_popen_read(
@@ -392,7 +392,7 @@ __BOTTLE_BLOCK__
       " libEGL_nvidia.so.0 (libc6,x86-64) => #{graphics_lib_dir/"libEGL_nvidia.so.0"}",
       " libEGL.so.1 (libc6,x86-64) => #{graphics_lib_dir/"libEGL.so.1"}",
     ].join("\n")
-    fake_ldconfig.write("#!/bin/sh\ncat <<'CACHE'\n#{incomplete_cache}\nCACHE\n")
+    File.write(fake_ldconfig, "#!/bin/sh\ncat <<'CACHE'\n#{incomplete_cache}\nCACHE\n")
     fake_ldconfig.chmod(0755)
     incomplete_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
