@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "e9777482ae34504c759a2901f1440d0f2da155c346c742c661131d29f8612d91"
+    sha256 x86_64_linux: "32257c718f65af33c09738f79edd34d3eab63162dd0d3483d1f0912a76acb715"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -18,6 +18,8 @@ class VibepolloApp < Formula
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
+  # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
+  # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "node" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
@@ -66,8 +68,7 @@ class VibepolloApp < Formula
   UPSTREAM_TAG = "2.0.6".freeze
   UPSTREAM_COMMIT = "5e6ed8594184212d429bb093d7fd47904c9a6fa6".freeze
 
-  # Resolved only by source builds. Do not declare this external tap as a dependency:
-  # Homebrew otherwise requires the user to tap it even when pouring our bottle.
+  # Resolved only by source builds. CI installs this toolchain explicitly.
   CUDA_FORMULA = "lizardbyte/homebrew/cuda@12.9".freeze
   CUDA_VERSION = "12.9".freeze
 
