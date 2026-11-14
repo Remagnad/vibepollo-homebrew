@@ -257,6 +257,34 @@ class VibepolloApp < Formula
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists libexec/"vibepollo-bin"
 
+    # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
+    # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
+    truehdr_runtime = lib/"vibeshine/truehdr"
+    assert_path_exists truehdr_runtime/"runtime-provenance.txt"
+    assert_match "sha256=0252866a7b798a6f92c8543443d88f716e8c5bbc6a7ddd77a2754728dada9fa8",
+                 (truehdr_runtime/"runtime-provenance.txt").read
+    assert_path_exists truehdr_runtime/"nvidia_vfx.libs/libcudart-256e6409.so.12.9.79"
+    %w[
+      libnppc.so.12
+      libnppial.so.12
+      libnppicc.so.12
+      libnppidei.so.12
+      libnppif.so.12
+      libnppig.so.12
+      libnppim.so.12
+      libnppist.so.12
+      libnppitc.so.12
+      libcudnn.so.9
+      libNVCVImage.so
+      libnvngxruntime.so
+      libVideoFXLocal.so
+      libVideoFX.so
+      libnvVFXTrueHDR.so
+      libnvidia-ngx-truehdr.so.1.2.3
+    ].each do |library|
+      assert_path_exists truehdr_runtime/"nvvfx/libs"/library
+    end
+
     # Exercise the launcher with a harmless stub instead of starting the server.
     launcher_test_prefix = testpath/"launcher-test"
     (launcher_test_prefix/"bin").mkpath
