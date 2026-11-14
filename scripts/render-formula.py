@@ -359,10 +359,15 @@ __BOTTLE_BLOCK__
     end.join("\n")
     File.write(fake_ldconfig, "#!/bin/sh\ncat <<'CACHE'\n#{full_cache}\nCACHE\n")
     fake_ldconfig.chmod(0755)
+    nvidia_test_path = "#{no_vendor_bin}:#{graphics_bin_dir}:#{ENV["PATH"]}"
+    selected_test_ldconfig = Utils.safe_popen_read(
+      "env", "PATH=#{nvidia_test_path}", "sh", "-c", "command -v ldconfig"
+    ).strip
+    assert_equal fake_ldconfig.to_s, selected_test_ldconfig
 
     nvidia_env_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
-      "PATH=#{no_vendor_bin}:#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "PATH=#{nvidia_test_path}",
       "LD_PRELOAD=#{existing_preload}",
       launcher_test.to_s, "--wrapper-test"
     )
@@ -396,7 +401,7 @@ __BOTTLE_BLOCK__
     fake_ldconfig.chmod(0755)
     incomplete_output = Utils.safe_popen_read(
       "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
-      "PATH=#{no_vendor_bin}:#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "PATH=#{nvidia_test_path}",
       "LD_PRELOAD=#{existing_preload}",
       launcher_test.to_s, "--wrapper-test"
     )
