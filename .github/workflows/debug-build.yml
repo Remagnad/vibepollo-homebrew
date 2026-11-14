@@ -174,8 +174,9 @@ jobs:
           formula="Remagnad/vibepollo-homebrew/vibepollo-app"
           brew tap-new --no-git Remagnad/vibepollo-homebrew
           tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
-          mkdir -p "$tap_path/Formula"
+          mkdir -p "$tap_path/Formula" "$tap_path/scripts"
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+          cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
 
           # Homebrew refuses to inspect formulas from newly created local taps
           # until the formula is explicitly trusted.
@@ -392,37 +393,7 @@ jobs:
           mkdir -p "$root/libexec"
           mv "$versioned" "$root/libexec/vibepollo-bin"
           rm -f "$root/bin/vibepollo"
-          cat > "$root/bin/vibepollo" <<'SH'
-          #!/bin/sh
-          set -eu
-          if [ -z "${DBUS_SYSTEM_BUS_ADDRESS:-}" ]; then
-            for bus_socket in /run/dbus/system_bus_socket /var/run/dbus/system_bus_socket; do
-              if [ -S "$bus_socket" ]; then
-                DBUS_SYSTEM_BUS_ADDRESS="unix:path=$bus_socket"
-                export DBUS_SYSTEM_BUS_ADDRESS
-                break
-              fi
-            done
-          fi
-          launcher_path="$(readlink -f -- "$0")" || exit 126
-          case "$launcher_path" in
-            */bin/vibepollo) formula_prefix="${launcher_path%/bin/vibepollo}" ;;
-            *)
-              echo "vibepollo-debug: cannot resolve package root" >&2
-              exit 126
-              ;;
-          esac
-          xdg_data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-          case ":$xdg_data_dirs:" in
-            *":$formula_prefix/share:"*) ;;
-            *) xdg_data_dirs="$formula_prefix/share:$xdg_data_dirs" ;;
-          esac
-          XDG_DATA_DIRS="$xdg_data_dirs"
-          export XDG_DATA_DIRS
-          VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
-          export VIBEPOLLO_ICON_THEME_PATH
-          exec "$formula_prefix/libexec/vibepollo-bin" "$@"
-          SH
+          cp scripts/vibepollo-launcher.sh "$root/bin/vibepollo"
           chmod 0755 "$root/bin/vibepollo"
 
           cat > dist/vibepollo-debug/run-debug.sh <<'SH'

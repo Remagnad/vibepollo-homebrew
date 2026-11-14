@@ -205,40 +205,9 @@ class VibepolloApp < Formula
       versioned_binary.rename(libexec/"vibepollo-bin")
       vibepollo_link.unlink
 
-      (bin/"vibepollo").write <<~SH
-        #!/bin/sh
-        if [ -z "${DBUS_SYSTEM_BUS_ADDRESS:-}" ]; then
-          for bus_socket in /run/dbus/system_bus_socket /var/run/dbus/system_bus_socket; do
-            if [ -S "$bus_socket" ]; then
-              DBUS_SYSTEM_BUS_ADDRESS="unix:path=$bus_socket"
-              export DBUS_SYSTEM_BUS_ADDRESS
-              break
-            fi
-          done
-        fi
-
-        launcher_path="$(readlink -f -- "$0")" || exit 126
-        case "$launcher_path" in
-          */bin/vibepollo) formula_prefix=${launcher_path%/bin/vibepollo} ;;
-          *)
-            echo "vibepollo: cannot resolve the Homebrew installation path" >&2
-            exit 126
-            ;;
-        esac
-        # GTK's icon theme does not normally search the Homebrew prefix.
-        # Expose packaged AppIndicator icons while preserving host icon paths.
-        xdg_data_dirs=${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
-        case ":$xdg_data_dirs:" in
-          *":$formula_prefix/share:"*) ;;
-          *) xdg_data_dirs="$formula_prefix/share:$xdg_data_dirs" ;;
-        esac
-        XDG_DATA_DIRS=$xdg_data_dirs
-        export XDG_DATA_DIRS
-        VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
-        export VIBEPOLLO_ICON_THEME_PATH
-
-        exec "$formula_prefix/libexec/vibepollo-bin" "$@"
-      SH
+      launcher_script = Pathname.new(__FILE__).realpath.dirname.parent/"scripts/vibepollo-launcher.sh"
+      odie "Vibepollo Homebrew launcher script is missing: #{launcher_script}" unless launcher_script.file?
+      cp launcher_script, bin/"vibepollo"
       chmod 0755, bin/"vibepollo"
     end
   end
@@ -301,6 +270,7 @@ class VibepolloApp < Formula
       printf '%s\n' "${DBUS_SYSTEM_BUS_ADDRESS:-unset}"
       printf '%s\n' "${XDG_DATA_DIRS:-unset}"
       printf '%s\n' "${VIBEPOLLO_ICON_THEME_PATH:-unset}"
+      printf '%s\n' "${LD_PRELOAD:-unset}"
       printf '%s\n' "$@"
     SH
     launcher_stub.chmod(0755)
@@ -310,9 +280,15 @@ class VibepolloApp < Formula
       "/var/run/dbus/system_bus_socket",
     ].find { |socket| File.socket?(socket) }
     expected_default_bus = host_bus_socket ? "unix:path=#{host_bus_socket}" : "unset"
+    no_nvidia_bin = testpath/"no-nvidia-bin"
+    no_nvidia_bin.mkpath
+    fake_ldconfig = no_nvidia_bin/"ldconfig"
+    fake_ldconfig.write("#!/bin/sh\nexit 0\n")
+    fake_ldconfig.chmod(0755)
+    test_path = "#{no_nvidia_bin}:#{ENV["PATH"]}"
     default_env_output = Utils.safe_popen_read(
-      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
-      launcher_test.to_s, "--wrapper-test", "argument with spaces"
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS", "-u", "LD_PRELOAD",
+      "PATH=#{test_path}", launcher_test.to_s, "--wrapper-test", "argument with spaces"
     )
     expected_default_xdg = "#{launcher_test_prefix}/share:/usr/local/share:/usr/share"
     expected_default_output = [
@@ -321,6 +297,8 @@ class VibepolloApp < Formula
       "#{expected_default_xdg}
 ",
       "#{launcher_test_prefix}/share/icons
+",
+      "unset
 ",
       "--wrapper-test
 ",
@@ -332,7 +310,8 @@ class VibepolloApp < Formula
     custom_bus = "unix:path=/custom/system_bus_socket"
     custom_xdg = "/custom/share:/usr/share"
     custom_env_output = Utils.safe_popen_read(
-      "env", "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", "XDG_DATA_DIRS=#{custom_xdg}",
+      "env", "-u", "LD_PRELOAD", "PATH=#{test_path}",
+      "DBUS_SYSTEM_BUS_ADDRESS=#{custom_bus}", "XDG_DATA_DIRS=#{custom_xdg}",
       launcher_test.to_s, "--wrapper-test"
     )
     expected_custom_output = [
@@ -342,10 +321,95 @@ class VibepolloApp < Formula
 ",
       "#{launcher_test_prefix}/share/icons
 ",
+      "unset
+",
       "--wrapper-test
 ",
     ].join
     assert_equal expected_custom_output, custom_env_output
+
+    # Test NVIDIA vendor detection separately from hardware and encoder probing.
+    # These tiny fixture DSOs let the launcher be tested on CPU-only CI workers.
+    graphics_lib_dir = testpath/"host-graphics-libs"
+    graphics_bin_dir = testpath/"host-graphics-bin"
+    graphics_lib_dir.mkpath
+    graphics_bin_dir.mkpath
+    graphics_sonames = %w[
+      libEGL_nvidia.so.0
+      libEGL.so.1
+      libGL.so.1
+      libGLX.so.0
+      libOpenGL.so.0
+      libGLdispatch.so.0
+      libgbm.so.1
+      libdrm.so.2
+    ]
+    fixture_source = testpath/"host-graphics-fixture.c"
+    fixture_source.write("int vibepollo_host_graphics_fixture(void) { return 0; }\n")
+    fixture_compiler = Formula["gcc@14"].opt_bin/"gcc-14"
+    graphics_sonames.each do |soname|
+      system fixture_compiler, "-shared", "-fPIC", "-Wl,-soname,#{soname}",
+             fixture_source, "-o", graphics_lib_dir/soname
+    end
+    existing_preload = graphics_lib_dir/"libexisting-preload.so"
+    system fixture_compiler, "-shared", "-fPIC", "-Wl,-soname,libexisting-preload.so",
+           fixture_source, "-o", existing_preload
+
+    full_cache = graphics_sonames.map do |soname|
+      " #{soname} (libc6,x86-64) => #{graphics_lib_dir/soname}"
+    end.join("\n")
+    fake_ldconfig.write("#!/bin/sh\ncat <<'CACHE'\n#{full_cache}\nCACHE\n")
+    fake_ldconfig.chmod(0755)
+
+    nvidia_env_output = Utils.safe_popen_read(
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
+      "PATH=#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "LD_PRELOAD=#{existing_preload}",
+      launcher_test.to_s, "--wrapper-test"
+    )
+    expected_nvidia_preload = (
+      %w[
+        libEGL.so.1
+        libGL.so.1
+        libGLX.so.0
+        libOpenGL.so.0
+        libGLdispatch.so.0
+        libgbm.so.1
+        libdrm.so.2
+      ].map { |soname| (graphics_lib_dir/soname).realpath.to_s } + [existing_preload.realpath.to_s]
+    ).join(":")
+    expected_nvidia_output = [
+      "#{expected_default_bus}\n",
+      "#{expected_default_xdg}\n",
+      "#{launcher_test_prefix}/share/icons\n",
+      "#{expected_nvidia_preload}\n",
+      "--wrapper-test\n",
+    ].join
+    assert_equal expected_nvidia_output, nvidia_env_output
+
+    # An NVIDIA marker without the complete host GLVND/GBM set must not inject
+    # a partial list or disturb an LD_PRELOAD that the user already supplied.
+    incomplete_cache = [
+      " libEGL_nvidia.so.0 (libc6,x86-64) => #{graphics_lib_dir/"libEGL_nvidia.so.0"}",
+      " libEGL.so.1 (libc6,x86-64) => #{graphics_lib_dir/"libEGL.so.1"}",
+    ].join("\n")
+    fake_ldconfig.write("#!/bin/sh\ncat <<'CACHE'\n#{incomplete_cache}\nCACHE\n")
+    fake_ldconfig.chmod(0755)
+    incomplete_output = Utils.safe_popen_read(
+      "env", "-u", "DBUS_SYSTEM_BUS_ADDRESS", "-u", "XDG_DATA_DIRS",
+      "PATH=#{graphics_bin_dir}:#{ENV["PATH"]}",
+      "LD_PRELOAD=#{existing_preload}",
+      launcher_test.to_s, "--wrapper-test"
+    )
+    expected_incomplete_output = [
+      "#{expected_default_bus}\n",
+      "#{expected_default_xdg}\n",
+      "#{launcher_test_prefix}/share/icons\n",
+      "#{existing_preload.realpath}\n",
+      "--wrapper-test\n",
+    ].join
+    assert_equal expected_incomplete_output, incomplete_output
+
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists share/"icons/hicolor/scalable/apps/io.github.Nonary.vibepollo.svg"
