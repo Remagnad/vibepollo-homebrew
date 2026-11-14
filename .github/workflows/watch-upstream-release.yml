@@ -139,6 +139,9 @@ jobs:
           core: false
           cask: false
 
+      - name: Add the pinned CUDA Toolkit formula tap
+        run: brew tap LizardByte/homebrew
+
       - name: Export Homebrew cache paths
         id: brew-paths
         shell: bash
@@ -179,9 +182,9 @@ jobs:
             ${{ steps.brew-paths.outputs.cache_dir }}/downloads
           # Formula source URLs and bottle hashes change every release; the dependency graph does not.
           # Refresh weekly, but restore the previous dependency cache when the week changes.
-          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-${{ steps.deps-cache.outputs.week }}
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
-            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v2-
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-
 
       - name: Unlink cached D-Bus before dependency upgrades
         shell: bash
@@ -659,6 +662,9 @@ jobs:
         with:
           core: false
           cask: false
+
+      - name: Add the pinned CUDA Toolkit formula tap
+        run: brew tap LizardByte/homebrew
 
       - name: Create a local tap for formula validation
         run: |
