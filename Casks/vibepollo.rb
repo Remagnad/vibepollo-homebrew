@@ -30,14 +30,12 @@ cask "vibepollo" do
     # Preserve the user's configured graphical askpass for non-interactive
     # sessions; the wrapper uses it only when no controlling terminal exists.
     run "/usr/bin/env",
-        args: ["bash", "-c", 'printf "%s" "${SUDO_ASKPASS-}"'],
+        args:        ["bash", "-c", 'printf "%s" "${SUDO_ASKPASS-}"'],
         stdout_path: "vibepollo-original-askpass"
 
     run "uninstall.sh",
         sudo: true,
-        env: {
-          "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass",
-        }
+        env: { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
 
   caveats <<~EOS
