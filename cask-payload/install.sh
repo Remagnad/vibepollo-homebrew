@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
+# Homebrew's sudo:true runner forces sudo -A and a graphical askpass helper.
+# Escalate here instead so sudo reads the password from the invoking terminal.
+if [[ "$EUID" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || {
+    printf 'vibepollo Cask installer: error: sudo is required for the privileged installation.\n' >&2
+    exit 1
+  }
+  exec sudo -- "$0" "$@"
+fi
+
 umask 077
 DRM_ROOT="/var/lib/vibepollo/drm"
 KEY_DIR="$DRM_ROOT/keys"

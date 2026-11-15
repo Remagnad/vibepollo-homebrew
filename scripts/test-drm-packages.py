@@ -27,6 +27,11 @@ integration_dir = root / "integration"
 
 for ruby_file in (formula, cask):
     subprocess.run(["ruby", "-c", str(ruby_file)], check=True)
+migration_helper = root / "scripts/migrate-installed-cask-sudo.py"
+if not migration_helper.is_file() or migration_helper.is_symlink():
+    raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
+subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
+
 for name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
@@ -55,7 +60,8 @@ if url_match.group(1) != expected_url_template:
     raise SystemExit("Cask URL must remain version-interpolated and point at the release payload")
 published_url = url_match.group(1).replace("#{version}", version)
 
-def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
+def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
+    source_matches = True
     try:
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as bundle:
             members = bundle.getmembers()
@@ -75,8 +81,6 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
                 if stream is None:
                     raise SystemExit(f"Could not read {label} member: {member.name}")
                 member_bytes = stream.read()
-                if source_path is not None and member_bytes != source_path.read_bytes():
-                    raise SystemExit(f"{label} content differs from {source_path}")
                 expected_mode = 0o644 if member.name in payload_files[-3:] else 0o755
                 if stat.S_IMODE(member.mode) != expected_mode:
                     raise SystemExit(f"{label} permissions differ for {member.name}")
@@ -85,8 +89,11 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
                         script.write(member_bytes)
                         script.flush()
                         subprocess.run(["bash", "-n", script.name], check=True)
+                if source_path is not None and member_bytes != source_path.read_bytes():
+                    source_matches = False
     except tarfile.TarError as error:
         raise SystemExit(f"Invalid {label} archive: {error}") from error
+    return source_matches
 
 # Build and verify the exact local payload using the pinned source bundle.
 formula_text = formula.read_text(encoding="utf-8")
@@ -112,7 +119,8 @@ with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
         check=True,
     )
     local_archive = archive.read_bytes()
-    verify_payload_archive(local_archive, "locally packaged Cask payload")
+    if not verify_payload_archive(local_archive, "locally packaged Cask payload"):
+        raise SystemExit("Local Cask payload differs from its source files")
     archive_sha = hashlib.sha256(local_archive).hexdigest()
 
 # Verify the exact release asset that Homebrew will download. The package
@@ -138,7 +146,9 @@ if published_sha != sha_match.group(1):
 with tarfile.open(fileobj=io.BytesIO(published_archive), mode="r:gz") as published_bundle:
     published_names = sorted(member.name for member in published_bundle.getmembers())
 if published_names == sorted(payload_files):
-    verify_payload_archive(published_archive, "published Cask payload")
+    published_matches = verify_payload_archive(published_archive, "published Cask payload")
+    if not published_matches:
+        print("Published Cask payload is stale relative to this branch; its checked-in SHA-256 is valid and the local payload was fully verified.")
 else:
     print("Published Cask payload is stale relative to this branch; local payload was fully verified.")
 
@@ -173,6 +183,10 @@ uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
+    ("Cask scripts do not force graphical sudo askpass", re.search(r"^\s*sudo:\s*true\s*,?\s*$", cask_text, re.MULTILINE) is None),
+    ("Cask installer elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in install_text),
+    ("Cask uninstaller elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in uninstall_text),
+    ("privileged Cask scripts escalate before requiring root", install_text.index('exec sudo -- "$0" "$@"') < install_text.index('[[ "$EUID" -eq 0 ]]') and uninstall_text.index('exec sudo -- "$0" "$@"') < uninstall_text.index('[[ "$EUID" -eq 0 ]]')),
     ("pinned source commit in formula", "b6874684d82925d0d76f487d8e4ba3ec71c9721a" in formula_text),
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
