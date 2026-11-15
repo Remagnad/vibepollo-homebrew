@@ -41,13 +41,13 @@ def main() -> None:
     # services and privileged pool provisioning remain Cask-managed.
     replace_once(
         root / "third-party/libvirtualdisplay/src/driver/CMakeLists.txt",
-        """      target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
-  endif()""",
-        """      target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
-      if(SUNSHINE_BUILD_HOMEBREW)
-          install(TARGETS vibeshine_vkms_peercred RUNTIME DESTINATION libexec)
-      endif()
-  endif()""",
+        """    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
+endif()""",
+        """    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
+    if(SUNSHINE_BUILD_HOMEBREW)
+        install(TARGETS vibeshine_vkms_peercred RUNTIME DESTINATION libexec)
+    endif()
+endif()""",
     )
 
     # The module lives outside /lib/modules; load it through our controller.
