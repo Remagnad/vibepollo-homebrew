@@ -136,13 +136,13 @@ def main() -> int:
     if not cask_source.is_file() or cask_source.is_symlink():
         raise RuntimeError(f"Current Cask definition is missing or unsafe: {cask_source}")
     source_text = cask_source.read_text(encoding="utf-8")
-    version_match = re.search(r'^  version "([0-9]+\\.[0-9]+\\.[0-9]+)"$', source_text, re.MULTILINE)
+    version_match = re.search(r'^  version "([0-9]+\.[0-9]+\.[0-9]+)"$', source_text, re.MULTILINE)
     if not version_match:
         raise RuntimeError("Current Cask version is invalid")
     version = version_match.group(1)
     if "uninstall_preflight do" not in source_text or "uninstall_postflight do" not in source_text:
         raise RuntimeError("Current Cask is missing the scoped askpass preflight/postflight blocks")
-    if not re.search(r'(?s)uninstall script: \\{.*?sudo:\\s*true', source_text):
+    if not re.search(r'(?s)uninstall script: \{.*?sudo:\s*true', source_text):
         raise RuntimeError("Current Cask uninstall script must retain sudo: true")
 
     brew = shutil.which("brew")
