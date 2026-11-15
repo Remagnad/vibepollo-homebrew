@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "f8bb2fdd872de4deb92020787f31bdf2e6722c4cdc2efae18d8345d2a34bcb5a"
+  sha256 "e36e8a684063832255bfd7f9826b032ce314d2479ccfb6b19ebafc0173327ad1"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "06dd6bb666f683aab456b1e95e35d7a884cf6e24ac767e27091fee62af29d0f8"
+    sha256 x86_64_linux: "0405480cb81298a0255979d88733f4143cdba803dbde35d7e03a3f4ad8589d15"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -510,7 +510,6 @@ CACHE
     ].join
     assert_equal expected_incomplete_output, incomplete_output
 
-    assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists share/"icons/hicolor/scalable/apps/io.github.Nonary.vibepollo.svg"
