@@ -237,7 +237,7 @@ checks = [
     ("controller passes token to insmod", '"vibeshine_drmctl_token=$LOAD_TOKEN"' in controller_text),
     ("controller validates the live token before unload", "check_managed_load_token" in controller_text),
     ("uninstaller validates the live token", "expected_token" in uninstall_text and "loaded_token" in uninstall_text),
-    ("safe uninstaller ownership check", '"$(state_value managed_load)" == "1"' in uninstall_text),
+    ("safe uninstaller ownership check", 'elif [[ "$(state_value managed_load)" != "1" ]]' in uninstall_text and "MODULE_UNVERIFIED_LOADED=1" in uninstall_text and 'if [[ "$STATE_TRUSTED" != "1" || "$MODULE_UNVERIFIED_LOADED" == "1" ]]' in uninstall_text),
     ("key preservation", "Preserved signing keys" in uninstall_text),
     ("no incorrect sig_key/serial comparison", "modinfo -F sig_key" not in install_text + controller_text),
 ]
