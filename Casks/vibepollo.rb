@@ -23,10 +23,36 @@ cask "vibepollo" do
     ],
   }
 
+  # Homebrew adds `sudo -A` whenever SUDO_ASKPASS is present in its process
+  # environment. Prefer sudo's terminal prompt when this Cask is removed from
+  # an interactive terminal, without changing the user's shell or system
+  # configuration. Restore the original value after the uninstall (or when
+  # Homebrew exits after a failed uninstall).
+  saved_sudo_askpass = nil
+  saved_sudo_askpass_present = false
+
+  uninstall_preflight do
+    if STDIN.tty? && ENV.key?("SUDO_ASKPASS")
+      saved_sudo_askpass = ENV.delete("SUDO_ASKPASS")
+      saved_sudo_askpass_present = true
+      at_exit do
+        ENV["SUDO_ASKPASS"] = saved_sudo_askpass if saved_sudo_askpass_present
+      end
+    end
+  end
+
   uninstall script: {
     executable: "#{staged_path}/uninstall.sh",
     sudo:       true,
   }
+
+  uninstall_postflight do
+    if saved_sudo_askpass_present
+      ENV["SUDO_ASKPASS"] = saved_sudo_askpass
+      saved_sudo_askpass = nil
+      saved_sudo_askpass_present = false
+    end
+  end
 
   caveats <<~EOS
     Before installing, copy your existing Secure Boot key pair to:
