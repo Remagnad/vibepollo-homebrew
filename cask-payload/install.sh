@@ -53,6 +53,7 @@ command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
 command -v getent >/dev/null 2>&1 || fail "getent is required"
 SOCKET_USER="${SUDO_USER:-}"
 [[ -n "$SOCKET_USER" && "$SOCKET_USER" != root ]] || fail "install from your normal desktop user with sudo; SUDO_USER is required"
+[[ "$SOCKET_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || fail "the invoking account name contains unsupported characters for a systemd socket user"
 getent passwd "$SOCKET_USER" >/dev/null || fail "could not resolve invoking user: $SOCKET_USER"
 if systemctl is-active --quiet vibeshine-vkms.service || systemctl is-active --quiet vibeshine-vkms-control.socket; then
   fail "stop the Vibeshine pool and control socket before upgrading the Cask"
