@@ -179,7 +179,7 @@ for label, passed in checks:
 
 
 checks = [
-    ("Cask scripts do not force graphical sudo askpass", re.search(r"^\\s*sudo:\\s*true\\s*,?\\s*$", cask_text, re.MULTILINE) is None),
+    ("Cask scripts do not force graphical sudo askpass", re.search(r"^\s*sudo:\s*true\s*,?\s*$", cask_text, re.MULTILINE) is None),
     ("Cask installer elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in install_text),
     ("Cask uninstaller elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in uninstall_text),
     ("privileged Cask scripts escalate before requiring root", install_text.index('exec sudo -- "$0" "$@"') < install_text.index('[[ "$EUID" -eq 0 ]]') and uninstall_text.index('exec sudo -- "$0" "$@"') < uninstall_text.index('[[ "$EUID" -eq 0 ]]')),
