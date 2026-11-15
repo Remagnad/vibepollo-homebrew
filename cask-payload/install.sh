@@ -71,9 +71,12 @@ for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-v
   [[ -e "$existing" || -L "$existing" ]] || continue
   [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing helper: $existing"
   expected="$(state_value "helper_${helper}_sha256")"
-  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "refusing to replace an unowned helper: $helper"
-  actual="$(sha256sum "$existing" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || fail "existing helper was modified outside this Cask: $helper"
+  if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    [[ "$helper" == "vibeshine-drmctl" && "$(state_value format)" == "1" ]] || fail "refusing to replace an unowned helper: $helper"
+  else
+    actual="$(sha256sum "$existing" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || fail "existing helper was modified outside this Cask: $helper"
+  fi
 done
 
 KERNEL_RELEASE="$(cat "$FORMULA_PREFIX/libexec/kernel-release")"
