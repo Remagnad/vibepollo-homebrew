@@ -496,14 +496,23 @@ jobs:
           # linked, causing the new bottle to fail with "Could not symlink".
           # Only unlink outdated formulae in the Vibepollo dependency closure;
           # leave unrelated cached tools linked and available to later steps.
+          formula="Remagnad/vibepollo-homebrew/vibepollo-app"
+          brew trust --formula "$formula"
+
+          # Do not hide a trust or dependency-resolution error inside process
+          # substitution: capture the command first so pipefail can stop the job.
+          dependency_output="$(brew deps --include-build --include-optional --include-test "$formula")"
           mapfile -t app_dependencies < <(
-            brew deps --include-build --include-optional --include-test \
-              Remagnad/vibepollo-homebrew/vibepollo-app |
+            printf '%s\n' "$dependency_output" |
               sed 's/^[^:]*: //' |
               tr ' ' '\n' |
               sed '/^$/d' |
               sort -u
           )
+          if (("${#app_dependencies[@]}" == 0)); then
+            echo "::error::Homebrew returned an empty Vibepollo dependency closure."
+            exit 1
+          fi
           mapfile -t outdated_formulae < <(
             brew outdated --formula --json=v2 | jq -r '.formulae[].name'
           )
