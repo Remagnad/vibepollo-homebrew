@@ -33,6 +33,7 @@ cask "vibepollo" do
         sudo: true,
         env:  { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
+
   uninstall script: {
     executable: "#{staged_path}/uninstall-complete.sh",
   }
