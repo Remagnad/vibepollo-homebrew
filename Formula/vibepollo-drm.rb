@@ -42,7 +42,9 @@ class VibepolloDrm < Formula
     EOS
     kernel_build = kernel_build_link.realpath
 
-    module_source = buildpath/"third-party/libvirtualdisplay/linux/vibeshine-drm"
+    source_root = buildpath/"Vibepollo-#{version}"
+    source_root = buildpath unless source_root.directory?
+    module_source = source_root/"third-party/libvirtualdisplay/linux/vibeshine-drm"
     required_sources = %w[
       Makefile
       build-module
@@ -72,7 +74,10 @@ class VibepolloDrm < Formula
 
     # Match the upstream build helper: Kbuild uses the running kernel's exact
     # prepared headers and switches to LLVM mode for Clang-built kernels.
-    system "make", "-C", kernel_build, "M=#{module_build}", *make_args, "modules"
+    make_tool = which("gmake") || which("make")
+    odie "GNU make is required to build the kernel module" unless make_tool
+
+    system make_tool, "-C", kernel_build, "M=#{module_build}", *make_args, "modules"
 
     module_file = module_build/"vibeshine_drm.ko"
     odie "Kbuild completed without vibeshine_drm.ko" unless module_file.file?
