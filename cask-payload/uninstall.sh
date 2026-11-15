@@ -44,19 +44,6 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-UNIT_DIR="/etc/systemd/system"
-for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
-  unit_path="$UNIT_DIR/$unit"
-  [[ -e "$unit_path" || -L "$unit_path" ]] || continue
-  [[ -f "$unit_path" && ! -L "$unit_path" ]] || fail "refusing unsafe systemd unit path: $unit_path"
-  expected_unit_sha="$(state_value "unit_${unit}_sha256")"
-  [[ "$expected_unit_sha" =~ ^[0-9a-f]{64}$ ]] || fail "no ownership record for $unit; leaving it untouched"
-  actual_unit_sha="$(sha256sum "$unit_path" | awk '{print $1}')"
-  [[ "$actual_unit_sha" == "$expected_unit_sha" ]] || fail "$unit was modified outside this Cask; leaving it untouched"
-  rm -f -- "$unit_path"
-done
-if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi
-
 if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail "module is loaded but state is missing; refusing to unload an unverified module"
   [[ "$(stat -c '%u' "$STATE_FILE")" == 0 ]] || fail "installation state must be owned by root"
@@ -80,6 +67,20 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
   rmmod "$MODULE_NAME" || fail "module is busy; close virtual displays, unload it, then retry"
 fi
+
+UNIT_DIR="/etc/systemd/system"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  unit_path="$UNIT_DIR/$unit"
+  [[ -e "$unit_path" || -L "$unit_path" ]] || continue
+  [[ -f "$unit_path" && ! -L "$unit_path" ]] || fail "refusing unsafe systemd unit path: $unit_path"
+  expected_unit_sha="$(state_value "unit_${unit}_sha256")"
+  [[ "$expected_unit_sha" =~ ^[0-9a-f]{64}$ ]] || fail "no ownership record for $unit; leaving it untouched"
+  actual_unit_sha="$(sha256sum "$unit_path" | awk '{print $1}')"
+  [[ "$actual_unit_sha" == "$expected_unit_sha" ]] || fail "$unit was modified outside this Cask; leaving it untouched"
+  rm -f -- "$unit_path"
+done
+if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi
+
 
 MODULES_DIR="$DRM_ROOT/modules"
 if [[ -e "$MODULES_DIR" || -L "$MODULES_DIR" ]]; then
