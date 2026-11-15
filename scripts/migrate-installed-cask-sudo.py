@@ -16,6 +16,7 @@ import tempfile
 TOKEN = "vibepollo"
 FULL_TOKEN = "Remagnad/vibepollo-homebrew/vibepollo"
 BACKUP_SUFFIX = ".before-homebrew-askpass-fix"
+UNINSTALL_ARTIFACT_KEYS = {"uninstall_preflight_steps", "uninstall_postflight_steps", "uninstall", "zap"}
 
 
 def serialize_json(value: dict) -> bytes:
@@ -61,6 +62,16 @@ def find_installed_caskfile(caskroom: pathlib.Path, version: str) -> pathlib.Pat
     return candidates[0]
 
 
+def select_uninstall_artifacts(artifacts: object) -> list:
+    if not isinstance(artifacts, list):
+        raise RuntimeError("Homebrew did not return a Cask artifact list for Vibepollo")
+    selected = [
+        entry for entry in artifacts
+        if isinstance(entry, dict) and any(key in UNINSTALL_ARTIFACT_KEYS for key in entry)
+    ]
+    return selected
+
+
 def validate_artifacts(artifacts: object) -> list:
     if not isinstance(artifacts, list):
         raise RuntimeError("Homebrew did not return an uninstall artifact list for Vibepollo")
@@ -93,7 +104,10 @@ def self_test() -> None:
             }],
         }],
     }]
-    assert validate_artifacts(artifacts) == artifacts
+    mixed_artifacts = [{"installer": [{"script": {"executable": "/tmp/install.sh"}}]}, *artifacts]
+    uninstall_artifacts = select_uninstall_artifacts(mixed_artifacts)
+    assert uninstall_artifacts == artifacts
+    assert validate_artifacts(uninstall_artifacts) == artifacts
     with tempfile.TemporaryDirectory(prefix="vibepollo-cask-migration-test-") as temporary:
         root = pathlib.Path(temporary)
         casks_dir = root / ".metadata" / "2.0.6" / "20261115" / "Casks"
@@ -174,7 +188,7 @@ def main() -> int:
     cask_info = casks[0]
     if str(cask_info.get("version")) != version:
         raise RuntimeError("Homebrew's current Cask version does not match the installed Cask version")
-    artifacts = validate_artifacts(cask_info.get("artifacts"))
+    artifacts = validate_artifacts(select_uninstall_artifacts(cask_info.get("artifacts")))
 
     installed_json = {
         "version": version,
