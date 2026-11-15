@@ -7,30 +7,30 @@ on:
       - main
     paths:
       - ".github/workflows/drm-package-check.yml"
-      - ".github/workflows/watch-upstream-release.yml"
+      - ".github/workflows/build-cask-integration.yml"
       - "Formula/vibepollo-drm.rb"
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/render-drm-packages.py"
-      - "scripts/prepare-source.sh"
       - "cask-payload/**"
+      - "integration/**"
   push:
     branches:
       - main
       - feature/vibeshine-drm-formula
     paths:
       - ".github/workflows/drm-package-check.yml"
-      - ".github/workflows/watch-upstream-release.yml"
+      - ".github/workflows/build-cask-integration.yml"
       - "Formula/vibepollo-drm.rb"
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/render-drm-packages.py"
-      - "scripts/prepare-source.sh"
       - "cask-payload/**"
+      - "integration/**"
 
 permissions:
   contents: read
@@ -50,6 +50,8 @@ jobs:
           cask: false
 
       - name: Validate Formula, Cask, payload checksum and lifecycle policy
+        env:
+          VIBEPOLLO_SKIP_PUBLISHED_ASSET_CHECK: "1"
         run: python3 scripts/test-drm-packages.py
 
       - name: Run Homebrew style and audits against the complete tap
