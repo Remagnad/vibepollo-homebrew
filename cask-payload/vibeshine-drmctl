@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DRM_ROOT="/var/lib/vibepollo/drm"
+CERTIFICATE="$DRM_ROOT/keys/MOK.der"
+KERNEL_RELEASE="$(uname -r)"
+MODULE_FILE="$DRM_ROOT/modules/$KERNEL_RELEASE/vibeshine_drm.ko"
+MODULE_NAME="vibeshine_drm"
+
+fail() {
+  printf 'vibeshine-drmctl: error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_root() {
+  [[ "$EUID" -eq 0 ]] || fail "run this command with sudo"
+}
+
+verify_signature() {
+  local openssl_bin cert_serial module_serial
+
+  [[ -f "$CERTIFICATE" && ! -L "$CERTIFICATE" ]] ||
+    fail "the signing certificate is missing at $CERTIFICATE"
+  command -v modinfo >/dev/null 2>&1 || fail "modinfo from kmod is required"
+  openssl_bin="$(command -v openssl || true)"
+  [[ -n "$openssl_bin" ]] || fail "openssl is required to verify the module signature"
+
+  cert_serial="$("$openssl_bin" x509 -inform DER -in "$CERTIFICATE" -noout -serial |
+    sed 's/^serial=//' | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+  module_serial="$(modinfo -F sig_key "$MODULE_FILE" 2>/dev/null |
+    tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+  [[ -n "$cert_serial" && "$module_serial" == "$cert_serial" ]] ||
+    fail "the installed module is not signed by the certificate in $CERTIFICATE"
+}
+
+usage() {
+  printf 'Usage: sudo %s {load|unload|status}\n' "$0" >&2
+}
+
+action="$1"
+case "$action" in
+  load)
+    require_root
+    [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]] ||
+      fail "no module was installed for the running kernel ($KERNEL_RELEASE)"
+    command -v modinfo >/dev/null 2>&1 || fail "modinfo from kmod is required"
+    command -v modprobe >/dev/null 2>&1 || fail "modprobe from kmod is required"
+    command -v insmod >/dev/null 2>&1 || fail "insmod from kmod is required"
+    verify_signature
+
+    file_version="$(modinfo -F version "$MODULE_FILE")"
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      loaded_version="$(cat "/sys/module/$MODULE_NAME/version" 2>/dev/null || true)"
+      [[ "$loaded_version" == "$file_version" ]] &&
+        { printf '%s is already loaded (version %s)\n' "$MODULE_NAME" "$loaded_version"; exit 0; }
+      fail "a different $MODULE_NAME version is already loaded; stop virtual displays and run 'sudo $0 unload' before replacing it"
+    fi
+
+    for dependency in $(modinfo -F depends "$MODULE_FILE" | tr ',' ' '); do
+      [[ -n "$dependency" ]] || continue
+      modprobe "$dependency"
+    done
+
+    if ! insmod "$MODULE_FILE"; then
+      printf 'The kernel refused the module. Inspect the kernel log with: journalctl -k -b\n' >&2
+      printf 'No Secure Boot key enrollment is attempted by this command.\n' >&2
+      exit 1
+    fi
+    printf 'Loaded %s for kernel %s\n' "$MODULE_NAME" "$KERNEL_RELEASE"
+    ;;
+  unload)
+    require_root
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
+      rmmod "$MODULE_NAME" ||
+        fail "the module is busy; close Vibepollo virtual displays and retry"
+      printf 'Unloaded %s\n' "$MODULE_NAME"
+    else
+      printf '%s is not loaded\n' "$MODULE_NAME"
+    fi
+    ;;
+  status)
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      printf '%s is loaded for kernel %s\n' "$MODULE_NAME" "$KERNEL_RELEASE"
+    else
+      printf '%s is not loaded\n' "$MODULE_NAME"
+    fi
+    if [[ -f "$MODULE_FILE" ]]; then
+      printf 'Installed module: %s\n' "$MODULE_FILE"
+    else
+      printf 'No module installed for the running kernel\n'
+    fi
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
