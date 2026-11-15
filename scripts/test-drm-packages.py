@@ -123,34 +123,39 @@ with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
         raise SystemExit("Local Cask payload differs from its source files")
     archive_sha = hashlib.sha256(local_archive).hexdigest()
 
-# Verify the exact release asset that Homebrew will download. The package
-# workflow sets SOURCE_DATE_EPOCH from the upstream release timestamp; building
-# the archive here with a different timestamp would produce a different SHA
-# despite identical file contents.
-request = urllib.request.Request(
-    published_url,
-    headers={"User-Agent": "vibepollo-homebrew-package-check"},
-)
-try:
-    with urllib.request.urlopen(request, timeout=60) as response:
-        published_archive = response.read()
-except (urllib.error.URLError, TimeoutError) as error:
-    raise SystemExit(f"Could not download the published Cask payload {published_url}: {error}") from error
-
-published_sha = hashlib.sha256(published_archive).hexdigest()
-if published_sha != sha_match.group(1):
-    raise SystemExit(
-        f"Published Cask checksum mismatch: Cask={sha_match.group(1)}, "
-        f"release asset={published_sha}"
-    )
-with tarfile.open(fileobj=io.BytesIO(published_archive), mode="r:gz") as published_bundle:
-    published_names = sorted(member.name for member in published_bundle.getmembers())
-if published_names == sorted(payload_files):
-    published_matches = verify_payload_archive(published_archive, "published Cask payload")
-    if not published_matches:
-        print("Published Cask payload is stale relative to this branch; its checked-in SHA-256 is valid and the local payload was fully verified.")
+# The standalone Cask workflow validates the new local payload before publishing it.
+# In that transaction the previous release asset is expected to be stale, so
+# skip only the remote-asset comparison when explicitly requested.
+if os.environ.get("VIBEPOLLO_SKIP_PUBLISHED_ASSET_CHECK") == "1":
+    print("Skipping published-asset comparison for the pre-publication Cask workflow.")
 else:
-    print("Published Cask payload is stale relative to this branch; local payload was fully verified.")
+    # Verify the exact release asset that Homebrew will download. The Cask
+    # workflow sets SOURCE_DATE_EPOCH from the upstream release timestamp;
+    # building with a different timestamp changes the archive SHA-256.
+    request = urllib.request.Request(
+        published_url,
+        headers={"User-Agent": "vibepollo-homebrew-package-check"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            published_archive = response.read()
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise SystemExit(f"Could not download the published Cask payload {published_url}: {error}") from error
+
+    published_sha = hashlib.sha256(published_archive).hexdigest()
+    if published_sha != sha_match.group(1):
+        raise SystemExit(
+            f"Published Cask checksum mismatch: Cask={sha_match.group(1)}, "
+            f"release asset={published_sha}"
+        )
+    with tarfile.open(fileobj=io.BytesIO(published_archive), mode="r:gz") as published_bundle:
+        published_names = sorted(member.name for member in published_bundle.getmembers())
+    if published_names == sorted(payload_files):
+        published_matches = verify_payload_archive(published_archive, "published Cask payload")
+        if not published_matches:
+            print("Published Cask payload is stale relative to this branch; its checked-in SHA-256 is valid and the local payload was fully verified.")
+    else:
+        print("Published Cask payload is stale relative to this branch; local payload was fully verified.")
 
 subprocess.run(
     [
