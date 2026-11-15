@@ -194,6 +194,8 @@ def main() -> int:
         "version": version,
         "artifacts": artifacts,
     }
+    if isinstance(cask_info.get("url_specs"), dict):
+        installed_json["url_specs"] = cask_info["url_specs"]
     old_json = {}
     if installed_caskfile.suffix == ".json":
         old_json = json.loads(installed_caskfile.read_text(encoding="utf-8"))
