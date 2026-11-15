@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # Escalate here instead so sudo reads the password from the invoking terminal.
 if [[ "$EUID" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || {
-    printf 'vibepollo Cask installer: error: sudo is required for the privileged installation.\\n' >&2
+    printf 'vibepollo Cask installer: error: sudo is required for the privileged installation.\n' >&2
     exit 1
   }
   exec sudo -- "$0" "$@"
