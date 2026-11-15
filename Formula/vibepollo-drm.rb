@@ -2,7 +2,6 @@ class VibepolloDrm < Formula
   desc "Vibeshine HDR virtual-display kernel module"
   homepage "https://github.com/Nonary/libvirtualdisplay"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  version "2.0.6"
   sha256 "f8bb2fdd872de4deb92020787f31bdf2e6722c4cdc2efae18d8345d2a34bcb5a"
   license "GPL-2.0-only"
 

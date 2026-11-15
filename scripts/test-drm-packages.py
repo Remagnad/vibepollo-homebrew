@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
     )
     rendered_formula = (pathlib.Path(temp) / "Formula/vibepollo-drm.rb").read_text()
     rendered_cask = (pathlib.Path(temp) / "Casks/vibepollo.rb").read_text()
-    if 'version "9.8.7"' not in rendered_formula or ("b" * 40) not in rendered_formula:
-        raise SystemExit("DRM Formula release metadata was not rendered")
+    if "vibepollo-source-9.8.7.tar.gz" not in rendered_formula or ("b" * 40) not in rendered_formula:
+        raise SystemExit("DRM Formula source URL or libvirtualdisplay commit was not rendered")
     if 'version "9.8.7"' not in rendered_cask or archive_sha not in rendered_cask:
         raise SystemExit("DRM Cask release metadata was not rendered")
 

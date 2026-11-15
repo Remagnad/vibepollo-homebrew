@@ -43,7 +43,6 @@ def main() -> None:
         raise SystemExit("Refusing an unexpected release asset URL.")
 
     formula = pathlib.Path(args.formula_template).read_text(encoding="utf-8")
-    formula = replace_line(formula, "  version ", f'  version "{args.version}"', "Formula version")
     formula = replace_line(formula, "  url ", f'  url "{args.source_url}"', "Formula source URL")
     formula = replace_line(formula, "  sha256 ", f'  sha256 "{args.source_sha}"', "Formula source SHA-256")
     formula = replace_line(formula, "  LIBVIRTUALDISPLAY_COMMIT = ",
