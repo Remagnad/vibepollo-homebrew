@@ -83,6 +83,10 @@ def self_test() -> None:
         "uninstall_preflight_steps": [{
             "steps": [{
                 "type": "run",
+                "command": {"base": "staged_path", "path": "vibepollo-askpass"},
+                "stdout_path": {"base": "staged_path", "path": "vibepollo-original-askpass"},
+            }, {
+                "type": "run",
                 "command": {"base": "staged_path", "path": "uninstall.sh"},
                 "sudo": True,
                 "env": {"SUDO_ASKPASS": "{{staged_path}}/vibepollo-askpass"},
