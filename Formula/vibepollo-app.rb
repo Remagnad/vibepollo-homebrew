@@ -170,7 +170,7 @@ class VibepolloApp < Formula
         puts "CUDA CMake preflight directory retained at: #{cuda_preflight_dir}"
         raise
       else
-        cuda_preflight_dir.rmtree if cuda_preflight_dir.directory?
+        rm_r cuda_preflight_dir if cuda_preflight_dir.directory?
       end
 
       cmake_args = std_cmake_args + [
