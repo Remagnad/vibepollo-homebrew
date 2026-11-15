@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate an installed Vibepollo Cask to its current Homebrew uninstall definition."""
+"""Migrate an installed Vibepollo Cask receipt to the current Homebrew uninstall steps."""
 
 from __future__ import annotations
 
@@ -14,34 +14,8 @@ import tempfile
 
 
 TOKEN = "vibepollo"
-BACKUP_SUFFIX = ".before-askpass-fix"
-
-
-def contains_uninstall_script(value: object) -> bool:
-    if isinstance(value, str):
-        return value.endswith("/uninstall.sh") or value == "uninstall.sh"
-    if isinstance(value, dict):
-        return any(contains_uninstall_script(item) for item in value.values())
-    if isinstance(value, list):
-        return any(contains_uninstall_script(item) for item in value)
-    return False
-
-
-def set_uninstall_script_sudo(value: object) -> int:
-    """Set sudo:true only on serialized uninstall.sh script artifacts."""
-    changed = 0
-    if isinstance(value, dict):
-        for key, item in list(value.items()):
-            if key == "script" and isinstance(item, dict) and contains_uninstall_script(item):
-                if item.get("sudo") is not True:
-                    item["sudo"] = True
-                    changed += 1
-            else:
-                changed += set_uninstall_script_sudo(item)
-    elif isinstance(value, list):
-        for item in value:
-            changed += set_uninstall_script_sudo(item)
-    return changed
+FULL_TOKEN = "Remagnad/vibepollo-homebrew/vibepollo"
+BACKUP_SUFFIX = ".before-homebrew-askpass-fix"
 
 
 def serialize_json(value: dict) -> bytes:
@@ -76,7 +50,7 @@ def find_installed_caskfile(caskroom: pathlib.Path, version: str) -> pathlib.Pat
         casks_dir = timestamp_dir / "Casks"
         if not casks_dir.is_dir() or casks_dir.is_symlink():
             continue
-        for suffix in (".rb", ".json"):
+        for suffix in (".json", ".rb"):
             candidate = casks_dir / f"{TOKEN}{suffix}"
             if candidate.is_file() and not candidate.is_symlink():
                 candidates.append(candidate)
@@ -87,31 +61,44 @@ def find_installed_caskfile(caskroom: pathlib.Path, version: str) -> pathlib.Pat
     return candidates[0]
 
 
-def self_test() -> None:
-    receipt = {
-        "uninstall_flight_blocks": False,
-        "uninstall_artifacts": [{"uninstall": [{"script": {
-            "executable": "/tmp/uninstall.sh", "sudo": False, "args": []
-        }}]}],
-        "install_artifacts": [{"script": [{"sudo": True}]}],
-    }
-    assert contains_uninstall_script(receipt["uninstall_artifacts"])
-    assert set_uninstall_script_sudo(receipt["uninstall_artifacts"]) == 1
-    assert receipt["uninstall_artifacts"][0]["uninstall"][0]["script"]["sudo"] is True
-    receipt["uninstall_flight_blocks"] = True
-    decoded = json.loads(serialize_json(receipt))
-    assert decoded["uninstall_flight_blocks"] is True
-    assert decoded["install_artifacts"] == [{"script": [{"sudo": True}]}]
+def validate_artifacts(artifacts: object) -> list:
+    if not isinstance(artifacts, list):
+        raise RuntimeError("Homebrew did not return an uninstall artifact list for Vibepollo")
+    preflight = [
+        entry.get("uninstall_preflight_steps")
+        for entry in artifacts
+        if isinstance(entry, dict) and "uninstall_preflight_steps" in entry
+    ]
+    if len(preflight) != 1 or not isinstance(preflight[0], list):
+        raise RuntimeError("Current Cask metadata does not contain exactly one uninstall_preflight_steps artifact")
+    serialized = json.dumps(preflight[0])
+    required = ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass", "uninstall.sh")
+    if any(marker not in serialized for marker in required):
+        raise RuntimeError("Current Homebrew uninstall step is missing sudo or the terminal askpass override")
+    return artifacts
 
+
+def self_test() -> None:
+    artifacts = [{
+        "uninstall_preflight_steps": [{
+            "steps": [{
+                "type": "run",
+                "command": {"base": "staged_path", "path": "uninstall.sh"},
+                "sudo": True,
+                "env": {"SUDO_ASKPASS": "{{staged_path}}/vibepollo-askpass"},
+            }],
+        }],
+    }]
+    assert validate_artifacts(artifacts) == artifacts
     with tempfile.TemporaryDirectory(prefix="vibepollo-cask-migration-test-") as temporary:
         root = pathlib.Path(temporary)
-        version_dir = root / ".metadata" / "2.0.6" / "20261115" / "Casks"
-        version_dir.mkdir(parents=True)
-        json_file = version_dir / "vibepollo.json"
+        casks_dir = root / ".metadata" / "2.0.6" / "20261115" / "Casks"
+        casks_dir.mkdir(parents=True)
+        json_file = casks_dir / "vibepollo.json"
         json_file.write_text('{"version":"2.0.6"}', encoding="utf-8")
         assert find_installed_caskfile(root, "2.0.6") == json_file
-        ruby_file = version_dir / "vibepollo.rb"
-        ruby_file.write_text('cask "vibepollo" do\nend\n', encoding="utf-8")
+        rb_file = casks_dir / "vibepollo.rb"
+        rb_file.write_text('cask "vibepollo" do\nend\n', encoding="utf-8")
         try:
             find_installed_caskfile(root, "2.0.6")
         except RuntimeError:
@@ -140,10 +127,8 @@ def main() -> int:
     if not version_match:
         raise RuntimeError("Current Cask version is invalid")
     version = version_match.group(1)
-    if "uninstall_preflight do" not in source_text or "uninstall_postflight do" not in source_text:
-        raise RuntimeError("Current Cask is missing the scoped askpass preflight/postflight blocks")
-    if not re.search(r'(?s)uninstall script: \{.*?sudo:\s*true', source_text):
-        raise RuntimeError("Current Cask uninstall script must retain sudo: true")
+    if "uninstall_preflight_steps do" not in source_text or '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' not in source_text:
+        raise RuntimeError("Current Cask is missing the Homebrew-native terminal askpass uninstall step")
 
     brew = shutil.which("brew")
     if not brew:
@@ -170,19 +155,43 @@ def main() -> int:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if not isinstance(receipt, dict):
         raise RuntimeError("Installed Cask receipt is not a JSON object")
-    uninstall_artifacts = receipt.get("uninstall_artifacts")
-    if not isinstance(uninstall_artifacts, list) or not contains_uninstall_script(uninstall_artifacts):
-        raise RuntimeError("Installed receipt has no recorded uninstall.sh artifact; refusing migration")
 
-    set_uninstall_script_sudo(uninstall_artifacts)
-    receipt["uninstall_flight_blocks"] = True
+    # Ask Homebrew itself to serialize the current Cask's uninstall artifacts.
+    # This keeps the installed receipt in the exact schema expected by that
+    # Homebrew version, including normalized install-step path specifications.
+    info = subprocess.check_output(
+        [brew, "info", "--json=v2", "--cask", FULL_TOKEN],
+        text=True,
+    )
+    document = json.loads(info)
+    casks = document.get("casks") if isinstance(document, dict) else None
+    if not isinstance(casks, list) or len(casks) != 1 or not isinstance(casks[0], dict):
+        raise RuntimeError("Homebrew did not return exactly one Vibepollo Cask metadata record")
+    cask_info = casks[0]
+    if str(cask_info.get("version")) != version:
+        raise RuntimeError("Homebrew's current Cask version does not match the installed Cask version")
+    artifacts = validate_artifacts(cask_info.get("artifacts"))
+
+    installed_json = {
+        "version": version,
+        "artifacts": artifacts,
+    }
+    old_json = {}
+    if installed_caskfile.suffix == ".json":
+        old_json = json.loads(installed_caskfile.read_text(encoding="utf-8"))
+        if isinstance(old_json, dict) and isinstance(old_json.get("url_specs"), dict):
+            installed_json["url_specs"] = old_json["url_specs"]
+    elif installed_caskfile.suffix != ".rb":
+        raise RuntimeError(f"Unsupported installed Cask metadata file: {installed_caskfile}")
+
+    receipt["uninstall_artifacts"] = artifacts
+    receipt["uninstall_flight_blocks"] = False
     receipt_bytes = serialize_json(receipt)
+    installed_bytes = serialize_json(installed_json)
+    json_destination = installed_caskfile.with_name(f"{TOKEN}.json")
 
-    ruby_destination = installed_caskfile.with_name(f"{TOKEN}.rb")
-    source_bytes = source_text.encode("utf-8")
-    caskfile_needs_update = installed_caskfile != ruby_destination or installed_caskfile.read_bytes() != source_bytes
     receipt_needs_update = receipt_path.read_bytes() != receipt_bytes
-
+    caskfile_needs_update = installed_caskfile != json_destination or installed_caskfile.read_bytes() != installed_bytes
     paths_to_backup = []
     if receipt_needs_update:
         paths_to_backup.append(receipt_path)
@@ -197,24 +206,23 @@ def main() -> int:
         shutil.copy2(path, path.with_name(path.name + BACKUP_SUFFIX))
 
     if caskfile_needs_update:
-        ruby_mode = (installed_caskfile.stat().st_mode & 0o777) if installed_caskfile.suffix == ".rb" else 0o644
-        atomic_replace(ruby_destination, source_bytes, ruby_mode)
-        if installed_caskfile != ruby_destination:
+        mode = (installed_caskfile.stat().st_mode & 0o777) if installed_caskfile.suffix == ".json" else 0o644
+        atomic_replace(json_destination, installed_bytes, mode)
+        if installed_caskfile != json_destination:
             installed_caskfile.unlink()
     if receipt_needs_update:
-        receipt_mode = receipt_path.stat().st_mode & 0o777
-        atomic_replace(receipt_path, receipt_bytes, receipt_mode)
+        atomic_replace(receipt_path, receipt_bytes, receipt_path.stat().st_mode & 0o777)
 
-    print(f"Installed Homebrew Cask definition updated: {ruby_destination}", flush=True)
-    print(f"Installed receipt now records uninstall flight blocks: {receipt_path}", flush=True)
-    print("Original installed metadata backups were preserved.", flush=True)
+    print(f"Updated Homebrew's installed Cask metadata: {json_destination}", flush=True)
+    print(f"Updated Homebrew's uninstall receipt: {receipt_path}", flush=True)
+    print("Original metadata backups were preserved.", flush=True)
     print("Continuing with Homebrew-managed privileged Cask uninstall...", flush=True)
-    return subprocess.run([brew, "uninstall", "--cask", "Remagnad/vibepollo-homebrew/vibepollo"]).returncode
+    return subprocess.run([brew, "uninstall", "--cask", FULL_TOKEN]).returncode
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f"Vibepollo Cask migration: error: {error}", file=sys.stderr)
         raise SystemExit(1)
