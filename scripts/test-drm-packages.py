@@ -185,8 +185,10 @@ controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 checks = [
     ("Cask scripts do not force graphical sudo askpass", re.search(r"^\s*sudo:\s*true\s*,?\s*$", cask_text, re.MULTILINE) is None),
     ("Cask installer elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in install_text),
-    ("Cask uninstaller elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in uninstall_text),
-    ("privileged Cask scripts escalate before requiring root", install_text.index('exec sudo -- "$0" "$@"') < install_text.index('[[ "$EUID" -eq 0 ]]') and uninstall_text.index('exec sudo -- "$0" "$@"') < uninstall_text.index('[[ "$EUID" -eq 0 ]]')),
+    ("Cask uninstaller authenticates on the controlling terminal", 'sudo -v -p' in uninstall_text and '</dev/tty' in uninstall_text),
+    ("Cask uninstaller re-execs with cached noninteractive sudo", 'exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"' in uninstall_text),
+    ("Cask uninstaller bounds systemd and rmmod operations", 'systemctl_bounded 45' in uninstall_text and 'timeout --foreground --kill-after=5s 10s rmmod' in uninstall_text),
+    ("privileged Cask scripts escalate before requiring root", install_text.index('exec sudo -- "$0" "$@"') < install_text.index('[[ "$EUID" -eq 0 ]]') and uninstall_text.index('sudo -v -p') < uninstall_text.index('[[ "$EUID" -eq 0 ]]')),
     ("pinned source commit in formula", "b6874684d82925d0d76f487d8e4ba3ec71c9721a" in formula_text),
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
