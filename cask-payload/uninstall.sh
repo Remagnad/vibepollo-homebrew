@@ -4,19 +4,6 @@ set -Eeuo pipefail
 log() { printf 'vibepollo Cask uninstaller: %s\n' "$*" >&2; }
 fail() { printf 'vibepollo Cask uninstaller: error: %s\n' "$*" >&2; exit 1; }
 
-# Homebrew runs Cask uninstall scripts without a TTY-aware sudo prompt.
-# Authenticate explicitly on the controlling terminal, ignoring graphical
-# askpass settings, then re-exec non-interactively with the cached ticket.
-if [[ "$EUID" -ne 0 ]]; then
-  command -v sudo >/dev/null 2>&1 || fail "sudo is required for privileged removal"
-  [[ -r /dev/tty ]] || fail "no controlling terminal is available; run brew uninstall from a terminal"
-  log "requesting administrator authentication in this terminal"
-  if ! env -u SUDO_ASKPASS sudo -v -p 'Vibepollo Cask removal — password: ' </dev/tty; then
-    fail "administrator authentication failed"
-  fi
-  exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"
-fi
-
 DRM_ROOT="/var/lib/vibepollo/drm"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
@@ -58,7 +45,7 @@ unit_is_active() {
   esac
 }
 
-[[ "$EUID" -eq 0 ]] || fail "this uninstaller must run with root privileges"
+[[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"
 for command_name in stat awk sha256sum timeout; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
