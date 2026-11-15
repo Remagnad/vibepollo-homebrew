@@ -27,6 +27,11 @@ integration_dir = root / "integration"
 
 for ruby_file in (formula, cask):
     subprocess.run(["ruby", "-c", str(ruby_file)], check=True)
+migration_helper = root / "scripts/migrate-installed-cask-sudo.py"
+if not migration_helper.is_file() or migration_helper.is_symlink():
+    raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
+subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
+
 for name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
