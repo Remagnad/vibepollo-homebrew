@@ -182,12 +182,6 @@ install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
 uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
-for label, passed in checks:
-    if not passed:
-        raise SystemExit(f"Failed interactive sudo lifecycle check: {label}")
-
-
-
 checks = [
     ("Cask scripts do not force graphical sudo askpass", re.search(r"^\s*sudo:\s*true\s*,?\s*$", cask_text, re.MULTILINE) is None),
     ("Cask installer elevates through terminal sudo", 'exec sudo -- "$0" "$@"' in install_text),
