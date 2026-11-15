@@ -49,11 +49,22 @@ jobs:
       - name: Read latest stable release and compare
         id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
 
+          # Use the workflow token for GitHub API requests. Unauthenticated
+          # requests can hit the shared runner IP rate limit and return 403.
+          github_api_headers=(
+            -H "Authorization: Bearer $GH_TOKEN"
+            -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
           release_json="$(curl --fail --silent --show-error --location \
             --retry 5 --retry-all-errors \
+            "${github_api_headers[@]}" \
             https://api.github.com/repos/Nonary/Vibepollo/releases/latest)"
 
           jq -e '(.draft == false) and (.prerelease == false)' <<<"$release_json" >/dev/null
@@ -68,6 +79,7 @@ jobs:
 
           commit_json="$(curl --fail --silent --show-error --location \
             --retry 5 --retry-all-errors \
+            "${github_api_headers[@]}" \
             "https://api.github.com/repos/Nonary/Vibepollo/commits/$tag")"
           commit="$(jq -r '.sha' <<<"$commit_json")"
 
