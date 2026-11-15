@@ -214,6 +214,7 @@ controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
     ("Cask delegates privileged uninstall to Homebrew install steps", "uninstall_preflight_steps do" in cask_text and 'run "uninstall.sh"' in cask_text and "sudo: true" in cask_text),
+    ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask preserves the original askpass for non-interactive fallback", "stdout_path: \"vibepollo-original-askpass\"" in cask_text and "vibepollo-original-askpass" in (payload_dir / "vibepollo-askpass").read_text(encoding="utf-8")),
     ("Cask installer elevates through sudo", 'exec sudo -- "$0" "$@"' in install_text),
