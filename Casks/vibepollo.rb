@@ -23,38 +23,16 @@ cask "vibepollo" do
     ],
   }
 
-  # Homebrew adds `sudo -A` whenever SUDO_ASKPASS is present in its
-  # process environment. For interactive Cask removal, temporarily remove
-  # that variable before the privileged artifact constructs its sudo command.
-  # The old block API is required here because install steps run in a child
-  # command and cannot modify the parent Homebrew process environment.
-  # rubocop:disable Cask/InstallSteps, Cask/StanzaOrder
-  saved_sudo_askpass = nil
-  saved_sudo_askpass_present = false
-
-  uninstall_preflight do
-    if $stdin.tty? && ENV.key?("SUDO_ASKPASS")
-      saved_sudo_askpass = ENV.delete("SUDO_ASKPASS")
-      saved_sudo_askpass_present = true
-      at_exit do
-        ENV["SUDO_ASKPASS"] = saved_sudo_askpass if saved_sudo_askpass_present
-      end
-    end
+  # Run the privileged uninstaller through Homebrew's install-step runner.
+  # Its env override is applied to the sudo process itself, so sudo -A uses
+  # this terminal-backed helper instead of an inherited graphical askpass.
+  uninstall_preflight_steps do
+    run "uninstall.sh",
+        sudo: true,
+        env: {
+          "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass",
+        }
   end
-
-  uninstall script: {
-    executable: "#{staged_path}/uninstall.sh",
-    sudo:       true,
-  }
-
-  uninstall_postflight do
-    if saved_sudo_askpass_present
-      ENV["SUDO_ASKPASS"] = saved_sudo_askpass
-      saved_sudo_askpass = nil
-      saved_sudo_askpass_present = false
-    end
-  end
-  # rubocop:enable Cask/InstallSteps, Cask/StanzaOrder
 
   caveats <<~EOS
     Before installing, copy your existing Secure Boot key pair to:
