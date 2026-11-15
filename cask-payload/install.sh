@@ -45,6 +45,15 @@ for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay
 done
 [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]] || fail "the Formula did not install vibeshine_drm.ko"
 [[ -f "$STAGED_HELPER" && ! -L "$STAGED_HELPER" ]] || fail "the Cask module-control helper is missing"
+[[ -x "$PEERCRED_HELPER" && ! -L "$PEERCRED_HELPER" ]] || fail "the app Formula lacks vibeshine-vkms-peercred; rebuild vibepollo-app"
+for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
+done
+command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
+command -v getent >/dev/null 2>&1 || fail "getent is required"
+SOCKET_USER="${SUDO_USER:-}"
+[[ -n "$SOCKET_USER" && "$SOCKET_USER" != root ]] || fail "install from your normal desktop user with sudo; SUDO_USER is required"
+getent passwd "$SOCKET_USER" >/dev/null || fail "could not resolve invoking user: $SOCKET_USER"
 
 KERNEL_RELEASE="$(cat "$FORMULA_PREFIX/libexec/kernel-release")"
 EXPECTED_VERSION="$(cat "$FORMULA_PREFIX/libexec/module-version")"
