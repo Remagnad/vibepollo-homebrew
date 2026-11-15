@@ -21,6 +21,7 @@ on:
       - feature/vibeshine-drm-formula
     paths:
       - ".github/workflows/drm-package-check.yml"
+      - ".github/workflows/watch-upstream-release.yml"
       - "Formula/vibepollo-drm.rb"
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
