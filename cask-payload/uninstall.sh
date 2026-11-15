@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # Use terminal sudo instead of Homebrew's graphical sudo -A/askpass path.
 if [[ "$EUID" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || {
-    printf 'vibepollo Cask uninstaller: error: sudo is required for privileged removal.\\n' >&2
+    printf 'vibepollo Cask uninstaller: error: sudo is required for privileged removal.\n' >&2
     exit 1
   }
   exec sudo -- "$0" "$@"
