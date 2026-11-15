@@ -459,7 +459,7 @@ jobs:
           tap_name="Remagnad/vibepollo-homebrew"
           brew tap-new --no-git "$tap_name"
           tap_path="$(brew --repo "$tap_name")"
-          mkdir -p "$tap_path/Formula" "$tap_path/Casks" "$tap_path/scripts"
+          mkdir -p "$tap_path/Formula" "$tap_path/scripts"
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
@@ -883,7 +883,6 @@ jobs:
           - Upstream tag: $TAG
           - Upstream commit: $COMMIT
           - Application bottle built, installed from bottle and tested by GitHub Actions.
-          - Cask integration packaging is handled independently by the Cask workflow.
 
           Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           EOF
