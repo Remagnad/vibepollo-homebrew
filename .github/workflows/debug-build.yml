@@ -299,6 +299,8 @@ jobs:
           export TAG="$BUILD_VERSION"
           export COMMIT="$(jq -r '.commit' "$SOURCE_DIR/HOMEBREW-UPSTREAM.json")"
           export BUILD_VERSION
+          cuda_prefix="$VIBEPOLLO_CUDA_TOOLKIT_ROOT"
+          test -x "$cuda_prefix/bin/nvcc"
           openssl_prefix="$(brew --prefix openssl@3)"
           test -f "$openssl_prefix/include/openssl/ssl.h"
           test -f "$openssl_prefix/lib/libssl.so.3"
