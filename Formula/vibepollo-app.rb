@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "2f59af82623e898fde440980272847f11c569b0792b4d445ab5d4463489a1928"
+    sha256 x86_64_linux: "06dd6bb666f683aab456b1e95e35d7a884cf6e24ac767e27091fee62af29d0f8"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
