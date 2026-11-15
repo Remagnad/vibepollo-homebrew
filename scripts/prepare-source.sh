@@ -73,7 +73,7 @@ if [[ ! "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]; then
     echo "Invalid libvirtualdisplay submodule commit: $libvirtualdisplay_commit" >&2
     exit 1
 fi
-printf '%s\\n' "$libvirtualdisplay_commit" > "${output_tarball}.libvirtualdisplay-commit"
+printf '%s\n' "$libvirtualdisplay_commit" > "${output_tarball}.libvirtualdisplay-commit"
 
 # inputtino's PS5 UHID implementation includes this submodule's shared UAPI
 # header even when the privileged kernel module itself is not built/installed.
