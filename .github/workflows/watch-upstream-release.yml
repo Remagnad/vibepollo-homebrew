@@ -471,6 +471,42 @@ jobs:
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
+      - name: Unlink outdated cached Vibepollo dependencies before upgrades
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          formula="Remagnad/vibepollo-homebrew/vibepollo-app"
+          brew trust --formula "$formula"
+
+          dependency_output="$(brew deps --include-build --include-optional --include-test "$formula")"
+          mapfile -t app_dependencies < <(
+            printf '%s\n' "$dependency_output" |
+              sed 's/^[^:]*: //' |
+              tr ' ' '\n' |
+              sed '/^$/d' |
+              sort -u
+          )
+          if (("${#app_dependencies[@]}" == 0)); then
+            echo "::error::Homebrew returned an empty Vibepollo dependency closure."
+            exit 1
+          fi
+
+          mapfile -t outdated_formulae < <(
+            brew outdated --formula --json=v2 | jq -r '.formulae[].name'
+          )
+
+          for outdated in "${outdated_formulae[@]}"; do
+            for dependency in "${app_dependencies[@]}"; do
+              if [[ "$outdated" == "$dependency" ]]; then
+                if brew list --versions "$outdated" >/dev/null 2>&1; then
+                  echo "Unlinking cached outdated dependency before upgrade: $outdated"
+                  brew unlink "$outdated"
+                fi
+                break
+              fi
+            done
+          done
+
       - name: Build formula with Homebrew
         shell: bash
         run: |
