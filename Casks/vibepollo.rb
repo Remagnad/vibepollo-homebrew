@@ -38,6 +38,10 @@ cask "vibepollo" do
         env:  { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
 
+  uninstall script: {
+    executable: "#{staged_path}/uninstall-complete.sh",
+  }
+
   caveats <<~EOS
     Before installing, copy your existing Secure Boot key pair to:
 
