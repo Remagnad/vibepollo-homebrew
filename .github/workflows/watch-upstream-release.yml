@@ -303,7 +303,7 @@ jobs:
           printf '%s\n' "$libvirtualdisplay_commit" > dist/libvirtualdisplay-commit.txt
 
           cask_payload="$PWD/dist/vibepollo-drm-integration-${{ needs.check-upstream.outputs.version }}.tar.gz"
-          bash scripts/package-cask-payload.sh "$cask_payload"
+          bash scripts/package-cask-payload.sh "$cask_payload" "$source_archive"
           cask_payload_sha="$(sha256sum "$cask_payload" | awk '{print $1}')"
           printf '%s\n' "$cask_payload_sha" > dist/cask-payload-sha256.txt
           echo "cask_payload=$cask_payload" >> "$GITHUB_OUTPUT"
