@@ -74,11 +74,32 @@ def update_installed_cask_definition(path: pathlib.Path) -> tuple[bytes, int]:
         updated, count = remove_ruby_uninstall_sudo(original)
         return updated.encode("utf-8"), count
     if path.suffix == ".json":
-        document = json.loads(path.read_text(encoding="utf-8"))
+        original = path.read_bytes()
+        document = json.loads(original)
+        if not isinstance(document, dict):
+            raise RuntimeError(f"Installed Cask JSON is not an object: {path}")
+
+        # Recent Homebrew versions may save a minimal installed-Cask JSON
+        # snapshot with no artifacts array (or artifacts: null). In that
+        # format the uninstall scripts and their sudo flags live in the
+        # Caskroom INSTALL_RECEIPT.json, which main() migrates separately.
         artifacts = document.get("artifacts")
-        if not isinstance(artifacts, list):
-            raise RuntimeError(f"Installed Cask JSON has no artifacts array: {path}")
-        count = remove_sudo_true(artifacts)
+        if artifacts is None:
+            uninstall_artifacts = document.get("uninstall_artifacts")
+            if uninstall_artifacts is None:
+                return original, 0
+            if not isinstance(uninstall_artifacts, list):
+                raise RuntimeError(
+                    f"Installed Cask JSON has invalid uninstall_artifacts: {path}"
+                )
+            count = remove_sudo_true(uninstall_artifacts)
+        elif isinstance(artifacts, list):
+            count = remove_sudo_true(artifacts)
+        else:
+            raise RuntimeError(f"Installed Cask JSON has invalid artifacts field: {path}")
+
+        if count == 0:
+            return original, 0
         return (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), count
     raise RuntimeError(f"Unsupported installed Cask definition: {path}")
 
@@ -139,6 +160,29 @@ end
     assert ruby_removed == 1
     assert "sudo: true" not in migrated_ruby
     assert 'executable: "/tmp/uninstall.sh"' in migrated_ruby
+
+    with tempfile.TemporaryDirectory(prefix="vibepollo-cask-json-test-") as temporary:
+        json_path = pathlib.Path(temporary) / "vibepollo.json"
+        # Homebrew 6/7 may write a minimal metadata snapshot with no artifacts.
+        minimal_json = b'{\n  "url_specs": {},\n  "artifacts": null\n}\n'
+        json_path.write_bytes(minimal_json)
+        migrated_json, json_removed = update_installed_cask_definition(json_path)
+        assert json_removed == 0
+        assert migrated_json == minimal_json
+
+        # Older/full installed metadata can still contain sudo on artifacts.
+        full_json = {
+            "artifacts": [
+                {"uninstall": [{"script": {
+                    "executable": "/tmp/uninstall.sh", "sudo": True, "args": []
+                }}]}
+            ]
+        }
+        json_path.write_text(json.dumps(full_json))
+        migrated_json, json_removed = update_installed_cask_definition(json_path)
+        migrated_document = json.loads(migrated_json.decode("utf-8"))
+        assert json_removed == 1
+        assert "sudo" not in migrated_document["artifacts"][0]["uninstall"][0]["script"]
 
     with tempfile.TemporaryDirectory(prefix="vibepollo-receipt-test-") as temporary:
         caskroom = pathlib.Path(temporary) / "Caskroom" / "vibepollo"
