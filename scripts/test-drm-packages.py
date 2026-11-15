@@ -213,7 +213,7 @@ uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
-    ("Cask removes inherited graphical askpass only for interactive uninstall", 'if STDIN.tty? && ENV.key?("SUDO_ASKPASS")' in cask_text and 'ENV.delete("SUDO_ASKPASS")' in cask_text),
+    ("Cask removes inherited graphical askpass only for interactive uninstall", 'if $stdin.tty? && ENV.key?("SUDO_ASKPASS")' in cask_text and 'ENV.delete("SUDO_ASKPASS")' in cask_text),
     ("Cask restores askpass after uninstall and on process exit", 'ENV["SUDO_ASKPASS"] = saved_sudo_askpass' in cask_text and "at_exit do" in cask_text and "uninstall_postflight do" in cask_text),
     ("Cask delegates uninstall privilege escalation to Homebrew", re.search(r"(?s)uninstall script: \{.*?sudo:\s*true", cask_text) is not None),
     ("Cask installer elevates through sudo", 'exec sudo -- "$0" "$@"' in install_text),
