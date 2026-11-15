@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate an installed Vibepollo Cask away from Homebrew's graphical sudo askpass."""
+"""Restore Homebrew-managed sudo execution for an installed Vibepollo Cask."""
 
 from __future__ import annotations
 
@@ -21,21 +21,21 @@ REPOSITORY = "Remagnad/vibepollo-homebrew"
 TOKEN = "vibepollo"
 
 
-def remove_sudo_true(value: object) -> int:
-    """Remove sudo:true from a serialized uninstall-artifact tree in place."""
-    removed = 0
+def ensure_sudo_true(value: object) -> int:
+    """Set sudo:true only on serialized uninstall scripts for uninstall.sh."""
+    changed = 0
     if isinstance(value, dict):
-        for key in list(value):
-            item = value[key]
-            if key == "sudo" and item is True:
-                del value[key]
-                removed += 1
+        for key, item in list(value.items()):
+            if key == "script" and isinstance(item, dict) and contains_uninstall_script(item):
+                if item.get("sudo") is not True:
+                    item["sudo"] = True
+                    changed += 1
             else:
-                removed += remove_sudo_true(item)
+                changed += ensure_sudo_true(item)
     elif isinstance(value, list):
         for item in value:
-            removed += remove_sudo_true(item)
-    return removed
+            changed += ensure_sudo_true(item)
+    return changed
 
 
 def contains_uninstall_script(value: object) -> bool:
@@ -48,30 +48,41 @@ def contains_uninstall_script(value: object) -> bool:
     return False
 
 
-def remove_ruby_uninstall_sudo(source: str) -> tuple[str, int]:
-    """Remove sudo:true only from the installed Cask's uninstall script stanza."""
-    pattern = re.compile(
-        r"(?ms)^(?P<indent>[ \\t]*)uninstall[ \\t]+script:[ \\t]*\{"
-        r"(?P<body>.*?)^(?P=indent)\}"
-    )
-    matches = list(pattern.finditer(source))
-    if len(matches) != 1:
-        raise RuntimeError(
-            f"Expected one installed uninstall script stanza in Cask Ruby; found {len(matches)}"
-        )
-    match = matches[0]
-    body, removed = re.subn(
-        r"(?m)^[ \\t]*sudo:[ \\t]*true,?[ \\t]*$",
-        "",
-        match.group("body"),
-    )
-    return source[:match.start("body")] + body + source[match.end("body"):], removed
+def ensure_ruby_uninstall_sudo(source: str) -> tuple[str, int]:
+    """Ensure sudo:true only in the installed Cask's uninstall script stanza."""
+    lines = source.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines)
+              if re.match(r"^[ \t]*uninstall[ \t]+script:[ \t]*\{", line)]
+    if len(starts) != 1:
+        raise RuntimeError(f"Expected one installed uninstall script stanza; found {len(starts)}")
+    start = starts[0]
+    indent = re.match(r"^[ \t]*", lines[start]).group(0)
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].strip() == "}" and lines[i][:len(indent)] == indent), None)
+    if end is None:
+        raise RuntimeError("Installed Cask uninstall script stanza is unterminated")
+    for i in range(start + 1, end):
+        match = re.match(r"^(?P<indent>[ \t]*)sudo:[ \t]*(?P<value>true|false),?[ \t]*(?:\n)?$", lines[i])
+        if match:
+            if match.group("value") == "true":
+                return source, 0
+            newline = "\n" if lines[i].endswith("\n") else ""
+            lines[i] = f"{match.group('indent')}sudo: true,{newline}"
+            return "".join(lines), 1
+    executable = next((i for i in range(start + 1, end)
+                       if re.match(r"^[ \t]*executable:", lines[i])), None)
+    if executable is None:
+        raise RuntimeError("Installed uninstall script has no executable entry")
+    item_indent = re.match(r"^[ \t]*", lines[executable]).group(0)
+    newline = "\n" if lines[executable].endswith("\n") else ""
+    lines.insert(executable + 1, f"{item_indent}sudo: true,{newline}")
+    return "".join(lines), 1
 
 
 def update_installed_cask_definition(path: pathlib.Path) -> tuple[bytes, int]:
     if path.suffix == ".rb":
         original = path.read_text(encoding="utf-8")
-        updated, count = remove_ruby_uninstall_sudo(original)
+        updated, count = ensure_ruby_uninstall_sudo(original)
         return updated.encode("utf-8"), count
     if path.suffix == ".json":
         original = path.read_bytes()
@@ -92,9 +103,9 @@ def update_installed_cask_definition(path: pathlib.Path) -> tuple[bytes, int]:
                 raise RuntimeError(
                     f"Installed Cask JSON has invalid uninstall_artifacts: {path}"
                 )
-            count = remove_sudo_true(uninstall_artifacts)
+            count = ensure_sudo_true(uninstall_artifacts)
         elif isinstance(artifacts, list):
-            count = remove_sudo_true(artifacts)
+            count = ensure_sudo_true(artifacts)
         else:
             raise RuntimeError(f"Installed Cask JSON has invalid artifacts field: {path}")
 
@@ -144,7 +155,7 @@ def self_test() -> None:
 
     uninstall = receipt["uninstall_artifacts"]
     assert contains_uninstall_script(uninstall)
-    removed = remove_sudo_true(uninstall)
+    removed = ensure_sudo_true(uninstall)
     assert removed == 1
     assert "sudo" not in uninstall[0]["uninstall"][0]["script"]
     assert receipt["install_artifacts"][0]["script"][0]["sudo"] is True
@@ -156,7 +167,7 @@ def self_test() -> None:
   }
 end
 """
-    migrated_ruby, ruby_removed = remove_ruby_uninstall_sudo(installed_ruby)
+    migrated_ruby, ruby_removed = ensure_ruby_uninstall_sudo(installed_ruby)
     assert ruby_removed == 1
     assert "sudo: true" not in migrated_ruby
     assert 'executable: "/tmp/uninstall.sh"' in migrated_ruby
@@ -234,12 +245,13 @@ def download_uninstaller(url: str, expected_sha256: str) -> bytes:
                 raise RuntimeError("Could not read uninstall.sh from the verified payload")
             script = stream.read()
     required_markers = (
-        b"sudo -v -p",
-        b"</dev/tty",
-        b'exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"',
+        b'[[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"',
     )
+    forbidden_markers = (b"sudo -v", b"SUDO_ASKPASS", b"sudo -n")
+    if any(marker in script for marker in forbidden_markers):
+        raise RuntimeError("Published uninstaller must not perform its own sudo escalation")
     if any(marker not in script for marker in required_markers):
-        raise RuntimeError("Published uninstaller does not contain the verified terminal sudo migration")
+        raise RuntimeError("Published uninstaller does not require Homebrew-managed root execution")
     return script
 
 
@@ -301,32 +313,32 @@ def main() -> int:
     if not receipt_path.is_file() or receipt_path.is_symlink():
         raise RuntimeError(f"Installed Cask receipt is missing or unsafe: {receipt_path}")
     installed_caskfile = find_installed_cask_definition(caskroom, installed_dir.name)
-    updated_caskfile, caskfile_removed = update_installed_cask_definition(installed_caskfile)
+    updated_caskfile, caskfile_changed = update_installed_cask_definition(installed_caskfile)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     uninstall_artifacts = receipt.get("uninstall_artifacts")
     if not isinstance(uninstall_artifacts, list) or not contains_uninstall_script(uninstall_artifacts):
         raise RuntimeError("Installed receipt does not contain Vibepollo's uninstall script; refusing migration")
 
     updated_script = download_uninstaller(payload_url, expected_sha)
-    removed = remove_sudo_true(uninstall_artifacts)
+    removed = ensure_sudo_true(uninstall_artifacts)
     updated_receipt = serialize_receipt(receipt)
 
-    receipt_backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-terminal-sudo")
+    receipt_backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-homebrew-sudo")
     caskfile_backup = installed_caskfile.with_name(
-        installed_caskfile.name + ".before-terminal-sudo"
+        installed_caskfile.name + ".before-homebrew-sudo"
     )
     if removed and receipt_backup.exists():
         raise RuntimeError(f"Receipt backup already exists; refusing to overwrite it: {receipt_backup}")
-    if caskfile_removed and caskfile_backup.exists():
+    if caskfile_changed and caskfile_backup.exists():
         raise RuntimeError(f"Installed Cask backup already exists; refusing to overwrite it: {caskfile_backup}")
     if removed:
         shutil.copy2(receipt_path, receipt_backup)
-    if caskfile_removed:
+    if caskfile_changed:
         shutil.copy2(installed_caskfile, caskfile_backup)
 
     script_mode = installed_uninstaller.stat().st_mode & 0o777
     atomic_replace(installed_uninstaller, updated_script, script_mode | 0o100)
-    if caskfile_removed:
+    if caskfile_changed:
         caskfile_mode = installed_caskfile.stat().st_mode & 0o777
         atomic_replace(installed_caskfile, updated_caskfile, caskfile_mode)
     if removed:
@@ -336,15 +348,15 @@ def main() -> int:
     print(f"Updated installed uninstaller: {installed_uninstaller}", flush=True)
     print(f"Updated installed Cask definition: {installed_caskfile}", flush=True)
     print(
-        f"Removed {removed} sudo flag(s) from the Homebrew receipt and "
-        f"{caskfile_removed} from the installed Cask definition.",
+        f"Restored {removed} sudo flag(s) in the Homebrew receipt and "
+        f"{caskfile_changed} from the installed Cask definition.",
         flush=True,
     )
     if removed:
         print(f"Original receipt backup: {receipt_backup}", flush=True)
-    if caskfile_removed:
+    if caskfile_changed:
         print(f"Original Cask definition backup: {caskfile_backup}", flush=True)
-    print("Continuing with the normal Homebrew Cask uninstall...", flush=True)
+    print("Continuing with Homebrew-managed privileged Cask uninstall...", flush=True)
     return subprocess.run([brew, "uninstall", "--cask", REPOSITORY + "/" + TOKEN]).returncode
 
 
