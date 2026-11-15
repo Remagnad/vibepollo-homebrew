@@ -104,10 +104,15 @@ def self_test() -> None:
             }],
         }],
     }]
-    mixed_artifacts = [{"installer": [{"script": {"executable": "/tmp/install.sh"}}]}, *artifacts]
+    no_op_uninstall = {"uninstall": [{"script": {"executable": "/tmp/uninstall-complete.sh"}}]}
+    mixed_artifacts = [
+        {"installer": [{"script": {"executable": "/tmp/install.sh"}}]},
+        *artifacts,
+        no_op_uninstall,
+    ]
     uninstall_artifacts = select_uninstall_artifacts(mixed_artifacts)
-    assert uninstall_artifacts == artifacts
-    assert validate_artifacts(uninstall_artifacts) == artifacts
+    assert uninstall_artifacts == [*artifacts, no_op_uninstall]
+    assert validate_artifacts(uninstall_artifacts) == uninstall_artifacts
     with tempfile.TemporaryDirectory(prefix="vibepollo-cask-migration-test-") as temporary:
         root = pathlib.Path(temporary)
         casks_dir = root / ".metadata" / "2.0.6" / "20261115" / "Casks"
