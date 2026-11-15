@@ -54,6 +54,11 @@ for spec in "${components[@]}"; do
   fi
   cp -a "$archive_root/." "$merged_dir/"
 done
+# NVCC's linker always receives -L<toolkit>/lib64. Create that directory
+# even when the selected redist components only provide a multiarch lib path.
+# (The static runtime libraries may be discovered in <toolkit>/lib.)
+mkdir -p "$merged_dir/lib64"
+
 # CUDA redist archives keep Linux libraries in the multiarch target path.
 # NVCC's built-in host link step still searches the traditional lib64 path,
 # so expose the target libraries there without copying the payload.
