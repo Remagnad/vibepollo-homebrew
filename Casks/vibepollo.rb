@@ -7,25 +7,25 @@ cask "vibepollo" do
   desc "Privileged Linux integration for the Vibepollo streaming host"
   homepage "https://github.com/Nonary/Vibepollo"
 
-  depends_on :linux
   depends_on arch: :x86_64
   depends_on formula: [
     "vibepollo-app",
     "vibepollo-drm",
   ]
+  depends_on :linux
 
   installer script: {
     executable: "#{staged_path}/install.sh",
-    args: [
+    args:       [
       "#{HOMEBREW_PREFIX}/opt/vibepollo-drm",
       "#{staged_path}/vibeshine-drmctl",
     ],
-    sudo: true,
+    sudo:       true,
   }
 
   uninstall script: {
     executable: "#{staged_path}/uninstall.sh",
-    sudo: true,
+    sudo:       true,
   }
 
   caveats <<~EOS
