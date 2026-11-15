@@ -71,11 +71,11 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          tree_json="$(curl --fail --silent --show-error --location \\
-            --retry 5 --retry-all-errors \\
-            -H "Authorization: Bearer $GH_TOKEN" \\
-            -H "Accept: application/vnd.github+json" \\
-            -H "X-GitHub-Api-Version: 2022-11-28" \\
+          tree_json="$(curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/Nonary/Vibepollo/git/trees/$UPSTREAM_COMMIT?recursive=1")"
           libvirtualdisplay_commit="$(jq -er '.tree[] | select(.path == "third-party/libvirtualdisplay" and .mode == "160000" and .type == "commit") | .sha' <<<"$tree_json")"
           [[ "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]
@@ -183,16 +183,16 @@ jobs:
 
           release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
           mkdir -p "$RUNNER_TEMP/Formula" "$RUNNER_TEMP/Casks"
-          python3 scripts/render-drm-packages.py \\
-            --version "$VERSION" \\
-            --source-url "$release_root/vibepollo-source-$VERSION.tar.gz" \\
-            --source-sha "$SOURCE_SHA256" \\
-            --libvirtualdisplay-commit "$LIBVIRTUALDISPLAY_COMMIT" \\
-            --cask-url "$release_root/vibepollo-drm-integration-$VERSION.tar.gz" \\
-            --cask-sha "$CASK_SHA256" \\
-            --formula-template Formula/vibepollo-drm.rb \\
-            --cask-template Casks/vibepollo.rb \\
-            --formula-output "$RUNNER_TEMP/Formula/vibepollo-drm.rb" \\
+          python3 scripts/render-drm-packages.py \
+            --version "$VERSION" \
+            --source-url "$release_root/vibepollo-source-$VERSION.tar.gz" \
+            --source-sha "$SOURCE_SHA256" \
+            --libvirtualdisplay-commit "$LIBVIRTUALDISPLAY_COMMIT" \
+            --cask-url "$release_root/vibepollo-drm-integration-$VERSION.tar.gz" \
+            --cask-sha "$CASK_SHA256" \
+            --formula-template Formula/vibepollo-drm.rb \
+            --cask-template Casks/vibepollo.rb \
+            --formula-output "$RUNNER_TEMP/Formula/vibepollo-drm.rb" \
             --cask-output "$RUNNER_TEMP/Casks/vibepollo.rb"
 
           cp "$RUNNER_TEMP/Formula/vibepollo-drm.rb" Formula/vibepollo-drm.rb
