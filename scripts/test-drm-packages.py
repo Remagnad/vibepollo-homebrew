@@ -89,11 +89,32 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
     except tarfile.TarError as error:
         raise SystemExit(f"Invalid {label} archive: {error}") from error
 
-# Validate the package script independently. Its archive timestamp may differ
-# from the published release timestamp, so its compressed SHA is not expected
-# to equal the Cask's SHA-256.
+# Build and verify the exact local payload using the pinned source bundle.
 formula_text = formula.read_text(encoding="utf-8")
-source_url_match = re.search(r'^  url "([^"]+)"
+source_url_match = re.search(r'^  url "([^"]+)"$', formula_text, re.MULTILINE)
+if not source_url_match:
+    raise SystemExit("DRM Formula source URL is missing")
+source_url = source_url_match.group(1)
+
+with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
+    source_archive = pathlib.Path(temp) / "vibepollo-source.tar.gz"
+    source_request = urllib.request.Request(
+        source_url,
+        headers={"User-Agent": "vibepollo-homebrew-package-check"},
+    )
+    try:
+        with urllib.request.urlopen(source_request, timeout=120) as response:
+            source_archive.write_bytes(response.read())
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise SystemExit(f"Could not download the pinned source archive {source_url}: {error}") from error
+    archive = pathlib.Path(temp) / "vibepollo-drm-integration.tar.gz"
+    subprocess.run(
+        ["bash", str(root / "scripts/package-cask-payload.sh"), str(archive), str(source_archive)],
+        check=True,
+    )
+    local_archive = archive.read_bytes()
+    verify_payload_archive(local_archive, "locally packaged Cask payload")
+    archive_sha = hashlib.sha256(local_archive).hexdigest()
 
 # Verify the exact release asset that Homebrew will download. The package
 # workflow sets SOURCE_DATE_EPOCH from the upstream release timestamp; building
