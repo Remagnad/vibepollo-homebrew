@@ -61,6 +61,8 @@ with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
         raise SystemExit("DRM Formula source URL or libvirtualdisplay commit was not rendered")
     if 'version "9.8.7"' not in rendered_cask or archive_sha not in rendered_cask:
         raise SystemExit("DRM Cask release metadata was not rendered")
+    if '#{version}/vibepollo-drm-integration-#{version}.tar.gz' not in rendered_cask:
+        raise SystemExit("DRM Cask URL must use Homebrew version interpolation")
 
 formula_text = formula.read_text(encoding="utf-8")
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")

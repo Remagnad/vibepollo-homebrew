@@ -52,7 +52,12 @@ def main() -> None:
     cask = pathlib.Path(args.cask_template).read_text(encoding="utf-8")
     cask = replace_line(cask, "  version ", f'  version "{args.version}"', "Cask version")
     cask = replace_line(cask, "  sha256 ", f'  sha256 "{args.cask_sha}"', "Cask payload SHA-256")
-    cask = replace_line(cask, "  url ", f'  url "{args.cask_url}"', "Cask payload URL")
+    expected_cask_url = (f"https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-{args.version}/"
+                         f"vibepollo-drm-integration-{args.version}.tar.gz")
+    if args.cask_url != expected_cask_url:
+        raise SystemExit("Cask payload URL does not match the versioned release asset.")
+    if '  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz"' not in cask:
+        raise SystemExit("Cask template URL must remain version-interpolated for Homebrew audit.")
 
     formula_output = pathlib.Path(args.formula_output)
     cask_output = pathlib.Path(args.cask_output)
