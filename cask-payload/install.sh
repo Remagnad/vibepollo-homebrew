@@ -29,12 +29,15 @@ state_value() {
 }
 
 [[ "$EUID" -eq 0 ]] || fail "this installer must run with root privileges"
-[[ "$#" -eq 2 ]] || fail "expected the Formula prefix and staged helper path"
+[[ "$#" -eq 3 ]] || fail "expected DRM Formula prefix, app Formula prefix and staged payload directory"
 for command_name in stat sha256sum awk modinfo openssl install mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 FORMULA_PREFIX="$1"
-STAGED_HELPER="$2"
+APP_PREFIX="$2"
+STAGED_DIR="$3"
+STAGED_HELPER="$STAGED_DIR/vibeshine-drmctl"
+PEERCRED_HELPER="$APP_PREFIX/libexec/vibeshine-vkms-peercred"
 MODULE_FILE="$FORMULA_PREFIX/libexec/vibeshine_drm.ko"
 for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay-commit; do
   [[ -f "$FORMULA_PREFIX/libexec/$metadata" && ! -L "$FORMULA_PREFIX/libexec/$metadata" ]] ||
