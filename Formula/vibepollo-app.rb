@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "9c36955a9aae8809d137432acbb7c1585556b1e37b95eb666dbbd23e9f175cc4"
+    sha256 x86_64_linux: "3f0726a488d2e0c58415759de04aa09a97e292e257a64d16a220b173604e8d67"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -153,7 +153,7 @@ class VibepolloApp < Formula
                "-DCUDAToolkit_ROOT=#{cuda_prefix}",
                "-DCMAKE_CUDA_ARCHITECTURES=61"
         system "cmake", "--build", cuda_preflight_build, "--parallel", "2"
-      rescue StandardError
+      rescue
         configure_log = cuda_preflight_build/"CMakeFiles/CMakeConfigureLog.yaml"
         error_log = cuda_preflight_build/"CMakeFiles/CMakeError.log"
         [configure_log, error_log].each do |log|
@@ -253,7 +253,7 @@ class VibepolloApp < Formula
 
       begin
         system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
-      rescue StandardError
+      rescue
         configure_log = buildpath/"build/CMakeFiles/CMakeConfigureLog.yaml"
         if configure_log.file?
           puts "Vibepollo CMake configure log (last 200 lines):"
