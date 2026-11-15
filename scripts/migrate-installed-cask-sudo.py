@@ -51,8 +51,8 @@ def contains_uninstall_script(value: object) -> bool:
 def remove_ruby_uninstall_sudo(source: str) -> tuple[str, int]:
     """Remove sudo:true only from the installed Cask's uninstall script stanza."""
     pattern = re.compile(
-        r"(?ms)^(?P<indent>[ \\t]*)uninstall[ \\t]+script:[ \\t]*\\{"
-        r"(?P<body>.*?)^(?P=indent)\\}"
+        r"(?ms)^(?P<indent>[ \\t]*)uninstall[ \\t]+script:[ \\t]*\{"
+        r"(?P<body>.*?)^(?P=indent)\}"
     )
     matches = list(pattern.finditer(source))
     if len(matches) != 1:
