@@ -48,6 +48,61 @@ def contains_uninstall_script(value: object) -> bool:
     return False
 
 
+def remove_ruby_uninstall_sudo(source: str) -> tuple[str, int]:
+    """Remove sudo:true only from the installed Cask's uninstall script stanza."""
+    pattern = re.compile(
+        r"(?ms)^(?P<indent>[ \\t]*)uninstall[ \\t]+script:[ \\t]*\\{"
+        r"(?P<body>.*?)^(?P=indent)\\}"
+    )
+    matches = list(pattern.finditer(source))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Expected one installed uninstall script stanza in Cask Ruby; found {len(matches)}"
+        )
+    match = matches[0]
+    body, removed = re.subn(
+        r"(?m)^[ \\t]*sudo:[ \\t]*true,?[ \\t]*$",
+        "",
+        match.group("body"),
+    )
+    return source[:match.start("body")] + body + source[match.end("body"):], removed
+
+
+def update_installed_cask_definition(path: pathlib.Path) -> tuple[bytes, int]:
+    if path.suffix == ".rb":
+        original = path.read_text(encoding="utf-8")
+        updated, count = remove_ruby_uninstall_sudo(original)
+        return updated.encode("utf-8"), count
+    if path.suffix == ".json":
+        document = json.loads(path.read_text(encoding="utf-8"))
+        artifacts = document.get("artifacts")
+        if not isinstance(artifacts, list):
+            raise RuntimeError(f"Installed Cask JSON has no artifacts array: {path}")
+        count = remove_sudo_true(artifacts)
+        return (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), count
+    raise RuntimeError(f"Unsupported installed Cask definition: {path}")
+
+
+def find_installed_cask_definition(caskroom: pathlib.Path, version: str) -> pathlib.Path:
+    version_dir = caskroom / ".metadata" / version
+    if not version_dir.is_dir() or version_dir.is_symlink():
+        raise RuntimeError(f"Installed Cask metadata version directory is missing or unsafe: {version_dir}")
+    snapshots = [
+        path for path in version_dir.iterdir()
+        if path.is_dir() and not path.is_symlink()
+    ]
+    for snapshot in sorted(snapshots, key=lambda path: path.name, reverse=True):
+        casks_dir = snapshot / "Casks"
+        if not casks_dir.is_dir() or casks_dir.is_symlink():
+            continue
+        for suffix in ("rb", "json"):
+            candidate = casks_dir / f"{TOKEN}.{suffix}"
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+    raise RuntimeError(f"Installed Cask definition is missing under {version_dir}")
+
+
+
 def self_test() -> None:
     receipt = {
         "uninstall_artifacts": [
@@ -63,7 +118,27 @@ def self_test() -> None:
     assert removed == 1
     assert "sudo" not in uninstall[0]["uninstall"][0]["script"]
     assert receipt["install_artifacts"][0]["script"][0]["sudo"] is True
-    print("PASS: installed Cask receipt migration")
+
+    installed_ruby = """cask "vibepollo" do
+  uninstall script: {
+    executable: "/tmp/uninstall.sh",
+    sudo: true,
+  }
+end
+"""
+    migrated_ruby, ruby_removed = remove_ruby_uninstall_sudo(installed_ruby)
+    assert ruby_removed == 1
+    assert "sudo: true" not in migrated_ruby
+    assert 'executable: "/tmp/uninstall.sh"' in migrated_ruby
+
+    with tempfile.TemporaryDirectory(prefix="vibepollo-receipt-test-") as temporary:
+        caskroom = pathlib.Path(temporary) / "Caskroom" / "vibepollo"
+        (caskroom / ".metadata").mkdir(parents=True)
+        receipt_path = caskroom / ".metadata" / "INSTALL_RECEIPT.json"
+        receipt_path.write_text("{}")
+        assert receipt_path.is_file()
+        assert not (caskroom / ".metadata" / "2.0.6" / "INSTALL_RECEIPT.json").exists()
+    print("PASS: Homebrew receipt location and installed Cask sudo migration")
 
 
 def load_release_metadata(tap_root: pathlib.Path) -> tuple[str, str, str]:
@@ -162,28 +237,13 @@ def main() -> int:
     if installed_uninstaller.is_symlink():
         raise RuntimeError(f"Refusing symbolic-link uninstaller: {installed_uninstaller}")
 
-    # Homebrew stores each Cask receipt beside its timestamped installed
-    # Cask definition: Caskroom/<token>/.metadata/<version>/<timestamp>/
-    # INSTALL_RECEIPT.json. There is no receipt at .metadata/INSTALL_RECEIPT.json.
-    metadata_version_dir = caskroom / ".metadata" / installed_dir.name
-    if not metadata_version_dir.is_dir() or metadata_version_dir.is_symlink():
-        raise RuntimeError(f"Installed Cask metadata directory is missing or unsafe: {metadata_version_dir}")
-    metadata_snapshots = [
-        path for path in metadata_version_dir.iterdir()
-        if path.is_dir() and not path.is_symlink()
-        and (path / "INSTALL_RECEIPT.json").is_file()
-        and not (path / "INSTALL_RECEIPT.json").is_symlink()
-        and any((path / "Casks" / f"{TOKEN}.{ext}").is_file()
-                and not (path / "Casks" / f"{TOKEN}.{ext}").is_symlink()
-                for ext in ("json", "rb"))
-    ]
-    if not metadata_snapshots:
-        raise RuntimeError(
-            f"No timestamped Homebrew receipt for installed Vibepollo {installed_dir.name} "
-            f"was found under {metadata_version_dir}"
-        )
-    metadata_snapshot = max(metadata_snapshots, key=lambda path: path.name)
-    receipt_path = metadata_snapshot / "INSTALL_RECEIPT.json"
+    # Homebrew's Tab receipt lives directly in .metadata. The installed Cask
+    # definition is stored separately in .metadata/<version>/<timestamp>/Casks/.
+    receipt_path = caskroom / ".metadata" / "INSTALL_RECEIPT.json"
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise RuntimeError(f"Installed Cask receipt is missing or unsafe: {receipt_path}")
+    installed_caskfile = find_installed_cask_definition(caskroom, installed_dir.name)
+    updated_caskfile, caskfile_removed = update_installed_cask_definition(installed_caskfile)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     uninstall_artifacts = receipt.get("uninstall_artifacts")
     if not isinstance(uninstall_artifacts, list) or not contains_uninstall_script(uninstall_artifacts):
@@ -191,25 +251,42 @@ def main() -> int:
 
     updated_script = download_uninstaller(payload_url, expected_sha)
     removed = remove_sudo_true(uninstall_artifacts)
-    updated_receipt = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    updated_receipt = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\\n").encode("utf-8")
 
-    backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-terminal-sudo")
-    if removed and backup.exists():
-        raise RuntimeError(f"Receipt backup already exists; refusing to overwrite it: {backup}")
+    receipt_backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-terminal-sudo")
+    caskfile_backup = installed_caskfile.with_name(
+        installed_caskfile.name + ".before-terminal-sudo"
+    )
+    if removed and receipt_backup.exists():
+        raise RuntimeError(f"Receipt backup already exists; refusing to overwrite it: {receipt_backup}")
+    if caskfile_removed and caskfile_backup.exists():
+        raise RuntimeError(f"Installed Cask backup already exists; refusing to overwrite it: {caskfile_backup}")
     if removed:
-        shutil.copy2(receipt_path, backup)
+        shutil.copy2(receipt_path, receipt_backup)
+    if caskfile_removed:
+        shutil.copy2(installed_caskfile, caskfile_backup)
 
     script_mode = installed_uninstaller.stat().st_mode & 0o777
-    receipt_mode = receipt_path.stat().st_mode & 0o777
     atomic_replace(installed_uninstaller, updated_script, script_mode | 0o100)
+    if caskfile_removed:
+        caskfile_mode = installed_caskfile.stat().st_mode & 0o777
+        atomic_replace(installed_caskfile, updated_caskfile, caskfile_mode)
     if removed:
+        receipt_mode = receipt_path.stat().st_mode & 0o777
         atomic_replace(receipt_path, updated_receipt, receipt_mode)
 
-    print(f"Updated installed uninstaller: {installed_uninstaller}")
-    print(f"Removed {removed} graphical sudo flag(s) from the installed Homebrew receipt.")
+    print(f"Updated installed uninstaller: {installed_uninstaller}", flush=True)
+    print(f"Updated installed Cask definition: {installed_caskfile}", flush=True)
+    print(
+        f"Removed {removed} sudo flag(s) from the Homebrew receipt and "
+        f"{caskfile_removed} from the installed Cask definition.",
+        flush=True,
+    )
     if removed:
-        print(f"Original receipt backup: {backup}")
-    print("Continuing with the normal Homebrew Cask uninstall...")
+        print(f"Original receipt backup: {receipt_backup}", flush=True)
+    if caskfile_removed:
+        print(f"Original Cask definition backup: {caskfile_backup}", flush=True)
+    print("Continuing with the normal Homebrew Cask uninstall...", flush=True)
     return subprocess.run([brew, "uninstall", "--cask", REPOSITORY + "/" + TOKEN]).returncode
 
 
