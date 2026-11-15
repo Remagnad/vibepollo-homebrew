@@ -43,9 +43,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           version="$(tr -d '[:space:]' < upstream-version)"
-          tag="$(tr -d '[:space:]' < upstream-tag)"
+          tag="v$version"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$tag" == "$version" || "$tag" == "v$version" ]]
           release_json="$(gh api "repos/Remagnad/vibepollo-homebrew/releases/tags/vibepollo-$version")"
           published_at="$(jq -r '.published_at' <<<"$release_json")"
           [[ "$published_at" != "null" && -n "$published_at" ]]
