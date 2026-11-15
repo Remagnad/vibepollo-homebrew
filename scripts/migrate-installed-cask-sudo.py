@@ -179,10 +179,14 @@ def main() -> int:
     receipt_bytes = serialize_json(receipt)
 
     ruby_destination = installed_caskfile.with_name(f"{TOKEN}.rb")
-    paths_to_backup = [receipt_path]
-    if installed_caskfile != ruby_destination:
-        paths_to_backup.append(installed_caskfile)
-    elif installed_caskfile.read_text(encoding="utf-8") != source_text:
+    source_bytes = source_text.encode("utf-8")
+    caskfile_needs_update = installed_caskfile != ruby_destination or installed_caskfile.read_bytes() != source_bytes
+    receipt_needs_update = receipt_path.read_bytes() != receipt_bytes
+
+    paths_to_backup = []
+    if receipt_needs_update:
+        paths_to_backup.append(receipt_path)
+    if caskfile_needs_update:
         paths_to_backup.append(installed_caskfile)
     for path in paths_to_backup:
         backup = path.with_name(path.name + BACKUP_SUFFIX)
@@ -192,12 +196,14 @@ def main() -> int:
     for path in paths_to_backup:
         shutil.copy2(path, path.with_name(path.name + BACKUP_SUFFIX))
 
-    ruby_mode = (installed_caskfile.stat().st_mode & 0o777) if installed_caskfile.suffix == ".rb" else 0o644
-    atomic_replace(ruby_destination, source_text.encode("utf-8"), ruby_mode)
-    if installed_caskfile != ruby_destination:
-        installed_caskfile.unlink()
-    receipt_mode = receipt_path.stat().st_mode & 0o777
-    atomic_replace(receipt_path, receipt_bytes, receipt_mode)
+    if caskfile_needs_update:
+        ruby_mode = (installed_caskfile.stat().st_mode & 0o777) if installed_caskfile.suffix == ".rb" else 0o644
+        atomic_replace(ruby_destination, source_bytes, ruby_mode)
+        if installed_caskfile != ruby_destination:
+            installed_caskfile.unlink()
+    if receipt_needs_update:
+        receipt_mode = receipt_path.stat().st_mode & 0o777
+        atomic_replace(receipt_path, receipt_bytes, receipt_mode)
 
     print(f"Installed Homebrew Cask definition updated: {ruby_destination}", flush=True)
     print(f"Installed receipt now records uninstall flight blocks: {receipt_path}", flush=True)
