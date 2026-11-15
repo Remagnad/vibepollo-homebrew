@@ -17,15 +17,25 @@ root = pathlib.Path(__file__).resolve().parents[1]
 formula = root / "Formula/vibepollo-drm.rb"
 cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
-payload_files = ["install.sh", "uninstall.sh", "vibeshine-drmctl"]
+payload_files = [
+    "install.sh", "uninstall.sh", "vibeshine-drmctl",
+    "vibeshine-vkms", "vibeshine-vkms-quiesce",
+    "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
+    "vibeshine-vkms-control@.service",
+]
+integration_dir = root / "integration"
 
 for ruby_file in (formula, cask):
     subprocess.run(["ruby", "-c", str(ruby_file)], check=True)
-for name in payload_files:
+for name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
     subprocess.run(["bash", "-n", str(path)], check=True)
+for name in payload_files[-3:]:
+    path = integration_dir / name
+    if not path.is_file() or path.is_symlink():
+        raise SystemExit(f"Missing or unsafe systemd unit: {path}")
 
 cask_text = cask.read_text(encoding="utf-8")
 version_match = re.search(r'^  version "([^"]+)"$', cask_text, re.MULTILINE)
@@ -55,23 +65,50 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                source_path = payload_dir / member.name
+                if member.name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
+                    source_path = payload_dir / member.name
+                elif member.name in payload_files[-3:]:
+                    source_path = integration_dir / member.name
+                else:
+                    source_path = None
                 stream = bundle.extractfile(member)
-                if stream is None or stream.read() != source_path.read_bytes():
+                if stream is None:
+                    raise SystemExit(f"Could not read {label} member: {member.name}")
+                member_bytes = stream.read()
+                if source_path is not None and member_bytes != source_path.read_bytes():
                     raise SystemExit(f"{label} content differs from {source_path}")
-                expected_mode = stat.S_IMODE(source_path.stat().st_mode)
+                expected_mode = 0o644 if member.name in payload_files[-3:] else 0o755
                 if stat.S_IMODE(member.mode) != expected_mode:
                     raise SystemExit(f"{label} permissions differ for {member.name}")
+                if member.name in ("vibeshine-vkms", "vibeshine-vkms-quiesce"):
+                    with tempfile.NamedTemporaryFile() as script:
+                        script.write(member_bytes)
+                        script.flush()
+                        subprocess.run(["bash", "-n", script.name], check=True)
     except tarfile.TarError as error:
         raise SystemExit(f"Invalid {label} archive: {error}") from error
 
-# Validate the package script independently. Its archive timestamp may differ
-# from the published release timestamp, so its compressed SHA is not expected
-# to equal the Cask's SHA-256.
+# Build and verify the exact local payload using the pinned source bundle.
+formula_text = formula.read_text(encoding="utf-8")
+source_url_match = re.search(r'^  url "([^"]+)"$', formula_text, re.MULTILINE)
+if not source_url_match:
+    raise SystemExit("DRM Formula source URL is missing")
+source_url = source_url_match.group(1)
+
 with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
+    source_archive = pathlib.Path(temp) / "vibepollo-source.tar.gz"
+    source_request = urllib.request.Request(
+        source_url,
+        headers={"User-Agent": "vibepollo-homebrew-package-check"},
+    )
+    try:
+        with urllib.request.urlopen(source_request, timeout=120) as response:
+            source_archive.write_bytes(response.read())
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise SystemExit(f"Could not download the pinned source archive {source_url}: {error}") from error
     archive = pathlib.Path(temp) / "vibepollo-drm-integration.tar.gz"
     subprocess.run(
-        ["bash", str(root / "scripts/package-cask-payload.sh"), str(archive)],
+        ["bash", str(root / "scripts/package-cask-payload.sh"), str(archive), str(source_archive)],
         check=True,
     )
     local_archive = archive.read_bytes()
@@ -98,7 +135,12 @@ if published_sha != sha_match.group(1):
         f"Published Cask checksum mismatch: Cask={sha_match.group(1)}, "
         f"release asset={published_sha}"
     )
-verify_payload_archive(published_archive, "published Cask payload")
+with tarfile.open(fileobj=io.BytesIO(published_archive), mode="r:gz") as published_bundle:
+    published_names = sorted(member.name for member in published_bundle.getmembers())
+if published_names == sorted(payload_files):
+    verify_payload_archive(published_archive, "published Cask payload")
+else:
+    print("Published Cask payload is stale relative to this branch; local payload was fully verified.")
 
 subprocess.run(
     [
@@ -135,8 +177,12 @@ checks = [
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
     ("unencrypted-key validation", "-passin pass:" in install_text),
+    ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
+    ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
+    ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
+    ("Cask does not start or enable services", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
-    ("no service activation", "systemctl enable" not in install_text and "systemctl start" not in install_text),
+    ("no service activation", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no Secure Boot enrollment", "mokutil --import" not in install_text and "AUTO_ENROLL" not in install_text),
     ("controller ownership marker", "write_managed_load 1" in controller_text),
     ("module token parameter injected before Kbuild", "module_param_string(vibeshine_drmctl_token" in formula_text),

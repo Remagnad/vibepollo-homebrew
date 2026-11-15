@@ -510,6 +510,7 @@ CACHE
     ].join
     assert_equal expected_incomplete_output, incomplete_output
 
+    assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_path_exists share/"vibepollo/web/index.html"
     assert_path_exists share/"vibepollo/web/v2/index.html"
     assert_path_exists share/"icons/hicolor/scalable/apps/io.github.Nonary.vibepollo.svg"

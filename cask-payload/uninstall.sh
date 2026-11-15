@@ -26,6 +26,23 @@ if [[ ! -e "$DRM_ROOT" && ! -L "$DRM_ROOT" ]]; then
 fi
 for parent in /var /var/lib /var/lib/vibepollo "$DRM_ROOT"; do require_root_directory "$parent"; done
 if [[ -e "$STATE_DIR" || -L "$STATE_DIR" ]]; then require_root_directory "$STATE_DIR"; fi
+if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
+  [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail "refusing unsafe installation state file"
+  [[ "$(stat -c '%u' "$STATE_FILE")" == 0 ]] || fail "installation state must be owned by root"
+  state_mode="$(stat -c '%a' "$STATE_FILE")"
+  (( (8#$state_mode & 0022) == 0 )) || fail "installation state must not be writable by group or others"
+fi
+command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
+
+# Stop the optional pool before touching its helpers or the DRM module.
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl is-active --quiet vibeshine-vkms.service; then
+    systemctl stop vibeshine-vkms.service || fail "could not stop vibeshine-vkms.service; close active virtual displays and retry"
+  fi
+  if systemctl is-active --quiet vibeshine-vkms-control.socket; then
+    systemctl stop vibeshine-vkms-control.socket || fail "could not stop the Vibeshine control socket"
+  fi
+fi
 
 if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail "module is loaded but state is missing; refusing to unload an unverified module"
@@ -51,6 +68,20 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   rmmod "$MODULE_NAME" || fail "module is busy; close virtual displays, unload it, then retry"
 fi
 
+UNIT_DIR="/etc/systemd/system"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  unit_path="$UNIT_DIR/$unit"
+  [[ -e "$unit_path" || -L "$unit_path" ]] || continue
+  [[ -f "$unit_path" && ! -L "$unit_path" ]] || fail "refusing unsafe systemd unit path: $unit_path"
+  expected_unit_sha="$(state_value "unit_${unit}_sha256")"
+  [[ "$expected_unit_sha" =~ ^[0-9a-f]{64}$ ]] || fail "no ownership record for $unit; leaving it untouched"
+  actual_unit_sha="$(sha256sum "$unit_path" | awk '{print $1}')"
+  [[ "$actual_unit_sha" == "$expected_unit_sha" ]] || fail "$unit was modified outside this Cask; leaving it untouched"
+  rm -f -- "$unit_path"
+done
+if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi
+
+
 MODULES_DIR="$DRM_ROOT/modules"
 if [[ -e "$MODULES_DIR" || -L "$MODULES_DIR" ]]; then
   require_root_directory "$MODULES_DIR"
@@ -75,9 +106,19 @@ for directory in bin state; do
   require_root_directory "$path"
   case "$directory" in
     bin)
-      helper="$path/vibeshine-drmctl"
-      [[ ! -L "$helper" ]] || fail "refusing symbolic-link controller"
-      rm -f -- "$helper"
+for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+        helper="$path/$helper_name"
+        [[ -e "$helper" || -L "$helper" ]] || continue
+        [[ -f "$helper" && ! -L "$helper" ]] || fail "refusing unsafe helper path: $helper"
+        expected_helper_sha="$(state_value "helper_${helper_name}_sha256")"
+        if [[ ! "$expected_helper_sha" =~ ^[0-9a-f]{64}$ ]]; then
+          [[ "$helper_name" == "vibeshine-drmctl" && "$(state_value format)" == "1" ]] || fail "no ownership record for $helper_name; leaving it untouched"
+        else
+          actual_helper_sha="$(sha256sum "$helper" | awk '{print $1}')"
+          [[ "$actual_helper_sha" == "$expected_helper_sha" ]] || fail "$helper_name was modified outside this Cask; leaving it untouched"
+        fi
+        rm -f -- "$helper"
+      done
       ;;
     state)
       [[ ! -L "$STATE_FILE" ]] || fail "refusing symbolic-link state file"

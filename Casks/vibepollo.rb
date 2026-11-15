@@ -18,7 +18,8 @@ cask "vibepollo" do
     executable: "#{staged_path}/install.sh",
     args:       [
       "#{HOMEBREW_PREFIX}/opt/vibepollo-drm",
-      "#{staged_path}/vibeshine-drmctl",
+      "#{HOMEBREW_PREFIX}/opt/vibepollo-app",
+      staged_path,
     ],
     sudo:       true,
   }
@@ -39,11 +40,21 @@ cask "vibepollo" do
     must also be root-owned. The Cask checks that the key pair matches; it
     never generates keys, imports certificates, or requests enrollment.
 
-    The module is signed and installed for the currently running kernel, but
-    it is not loaded and no service is enabled at boot. Load it only when
-    needed with:
+    The module is signed and installed for the currently running kernel.
+    The pool units and broker are installed, but neither service is started
+    nor enabled at boot. The control socket is restricted to the desktop user
+    who invoked the Cask installer. Start the pool only when needed with:
 
-      sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl load
+      sudo systemctl start vibeshine-vkms.service
+
+    This starts the virtual-display pool and loads the module through
+    vibeshine-drmctl if it is not already loaded. To stop the pool:
+
+      sudo systemctl stop vibeshine-vkms.service
+
+    To inspect module ownership and status:
+
+      sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl status
 
     The controller records modules it loads itself. During uninstall, it only
     unloads a matching module that it previously loaded; if the same module

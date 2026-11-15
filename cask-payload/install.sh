@@ -29,12 +29,15 @@ state_value() {
 }
 
 [[ "$EUID" -eq 0 ]] || fail "this installer must run with root privileges"
-[[ "$#" -eq 2 ]] || fail "expected the Formula prefix and staged helper path"
+[[ "$#" -eq 3 ]] || fail "expected DRM Formula prefix, app Formula prefix and staged payload directory"
 for command_name in stat sha256sum awk modinfo openssl install mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 FORMULA_PREFIX="$1"
-STAGED_HELPER="$2"
+APP_PREFIX="$2"
+STAGED_DIR="$3"
+STAGED_HELPER="$STAGED_DIR/vibeshine-drmctl"
+PEERCRED_HELPER="$APP_PREFIX/libexec/vibeshine-vkms-peercred"
 MODULE_FILE="$FORMULA_PREFIX/libexec/vibeshine_drm.ko"
 for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay-commit; do
   [[ -f "$FORMULA_PREFIX/libexec/$metadata" && ! -L "$FORMULA_PREFIX/libexec/$metadata" ]] ||
@@ -42,6 +45,40 @@ for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay
 done
 [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]] || fail "the Formula did not install vibeshine_drm.ko"
 [[ -f "$STAGED_HELPER" && ! -L "$STAGED_HELPER" ]] || fail "the Cask module-control helper is missing"
+[[ -x "$PEERCRED_HELPER" && ! -L "$PEERCRED_HELPER" ]] || fail "the app Formula lacks vibeshine-vkms-peercred; rebuild vibepollo-app"
+for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
+done
+command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
+command -v getent >/dev/null 2>&1 || fail "getent is required"
+SOCKET_USER="${SUDO_USER:-}"
+[[ -n "$SOCKET_USER" && "$SOCKET_USER" != root ]] || fail "install from your normal desktop user with sudo; SUDO_USER is required"
+[[ "$SOCKET_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || fail "the invoking account name contains unsupported characters for a systemd socket user"
+getent passwd "$SOCKET_USER" >/dev/null || fail "could not resolve invoking user: $SOCKET_USER"
+if systemctl is-active --quiet vibeshine-vkms.service || systemctl is-active --quiet vibeshine-vkms-control.socket; then
+  fail "stop the Vibeshine pool and control socket before upgrading the Cask"
+fi
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  existing="/etc/systemd/system/$unit"
+  [[ -e "$existing" || -L "$existing" ]] || continue
+  [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing unit: $existing"
+  expected="$(state_value "unit_${unit}_sha256")"
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "refusing to replace an unowned existing unit: $unit"
+  actual="$(sha256sum "$existing" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
+done
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  existing="$BIN_DIR/$helper"
+  [[ -e "$existing" || -L "$existing" ]] || continue
+  [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing helper: $existing"
+  expected="$(state_value "helper_${helper}_sha256")"
+  if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    [[ "$helper" == "vibeshine-drmctl" && "$(state_value format)" == "1" ]] || fail "refusing to replace an unowned helper: $helper"
+  else
+    actual="$(sha256sum "$existing" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || fail "existing helper was modified outside this Cask: $helper"
+  fi
+done
 
 KERNEL_RELEASE="$(cat "$FORMULA_PREFIX/libexec/kernel-release")"
 EXPECTED_VERSION="$(cat "$FORMULA_PREFIX/libexec/module-version")"
@@ -149,9 +186,31 @@ DEST_DIR="$MODULES_DIR/$KERNEL_RELEASE"
 [[ ! -L "$BIN_DIR/vibeshine-drmctl" && ! -L "$BIN_DIR/vibeshine-drmctl.new" ]] ||
   fail "refusing symbolic-link controller destination"
 install -o root -g root -m 0644 "$TMP_DIR/vibeshine_drm.ko" "$DEST_DIR/vibeshine_drm.ko.new"
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  [[ ! -L "$BIN_DIR/$helper" && ! -L "$BIN_DIR/$helper.new" ]] || fail "refusing symbolic-link helper destination: $BIN_DIR/$helper"
+done
 install -o root -g root -m 0755 "$STAGED_HELPER" "$BIN_DIR/vibeshine-drmctl.new"
+install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms" "$BIN_DIR/vibeshine-vkms.new"
+install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms-quiesce" "$BIN_DIR/vibeshine-vkms-quiesce.new"
+install -o root -g root -m 0755 "$PEERCRED_HELPER" "$BIN_DIR/vibeshine-vkms-peercred.new"
 mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
-mv -f -- "$BIN_DIR/vibeshine-drmctl.new" "$BIN_DIR/vibeshine-drmctl"
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  mv -f -- "$BIN_DIR/$helper.new" "$BIN_DIR/$helper"
+done
+UNIT_DIR="/etc/systemd/system"
+install -d -o root -g root -m 0755 "$UNIT_DIR"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  [[ ! -L "$UNIT_DIR/$unit" ]] || fail "refusing symbolic-link systemd unit: $UNIT_DIR/$unit"
+done
+sed "s/@VIBESHINE_SOCKET_USER@/$SOCKET_USER/g" "$STAGED_DIR/vibeshine-vkms-control.socket" > "$TMP_DIR/vibeshine-vkms-control.socket"
+for unit in vibeshine-vkms.service vibeshine-vkms-control@.service; do
+  install -o root -g root -m 0644 "$STAGED_DIR/$unit" "$UNIT_DIR/$unit.new"
+done
+install -o root -g root -m 0644 "$TMP_DIR/vibeshine-vkms-control.socket" "$UNIT_DIR/vibeshine-vkms-control.socket.new"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  mv -f -- "$UNIT_DIR/$unit.new" "$UNIT_DIR/$unit"
+done
+systemctl daemon-reload
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
 printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\n' \
@@ -159,6 +218,14 @@ printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtual
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
+printf 'socket_user=%s\n' "$SOCKET_USER" >> "$STATE_FILE"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
+done
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  printf 'helper_%s_sha256=%s\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
+done
+chmod 0644 "$STATE_FILE"
 
 if command -v mokutil >/dev/null 2>&1; then
   if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
@@ -168,5 +235,6 @@ if command -v mokutil >/dev/null 2>&1; then
   fi
 fi
 printf '\nInstalled and signed vibeshine_drm.ko for %s.\n' "$KERNEL_RELEASE"
-printf 'The module was NOT loaded and no service was enabled.\n'
-printf 'Load it only when needed with: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
+printf 'The module was NOT loaded; pool units were installed but neither started nor enabled.\n'
+printf 'Start the pool only when needed with: sudo systemctl start vibeshine-vkms.service\n'
+printf 'To load only the module without starting the pool: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
