@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+DRM_ROOT="/var/lib/vibepollo/drm"
+STATE_DIR="$DRM_ROOT/state"
+STATE_FILE="$STATE_DIR/vibeshine-drm-install"
+CERTIFICATE="$DRM_ROOT/keys/MOK.der"
+KERNEL_RELEASE="$(uname -r)"
+MODULE_FILE="$DRM_ROOT/modules/$KERNEL_RELEASE/vibeshine_drm.ko"
+MODULE_NAME="vibeshine_drm"
+fail() { printf 'vibeshine-drmctl: error: %s\n' "$*" >&2; exit 1; }
+require_root() { [[ "$EUID" -eq 0 ]] || fail "run this command with sudo"; }
+require_root_directory() {
+  local path="$1" mode
+  [[ -d "$path" && ! -L "$path" ]] || fail "refusing unsafe directory path: $path"
+  [[ "$(stat -c '%u' "$path")" == 0 ]] || fail "$path must be owned by root"
+  mode="$(stat -c '%a' "$path")"
+  (( (8#$mode & 0022) == 0 )) || fail "$path must not be writable by group or others"
+}
+state_value() {
+  local key="$1"
+  [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || return 0
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$STATE_FILE"
+}
+read_state() {
+  for command_name in stat awk sha256sum; do command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"; done
+  for parent in /var /var/lib /var/lib/vibepollo "$DRM_ROOT" "$STATE_DIR"; do require_root_directory "$parent"; done
+  [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail "Cask installation state is missing; reinstall the Cask"
+  [[ "$(stat -c '%u' "$STATE_FILE")" == 0 ]] || fail "Cask state file must be owned by root"
+  state_mode="$(stat -c '%a' "$STATE_FILE")"
+  (( (8#$state_mode & 0022) == 0 )) || fail "Cask state file must not be writable by group or others"
+  STATE_KERNEL="$(state_value kernel)"
+  STATE_VERSION="$(state_value module_version)"
+  STATE_SRCVERSION="$(state_value module_srcversion)"
+  STATE_MODULE_SHA="$(state_value module_sha256)"
+  STATE_CERT_SHA="$(state_value certificate_sha256)"
+  STATE_MANAGED_LOAD="$(state_value managed_load)"
+  STATE_LOAD_TOKEN="$(state_value load_token)"
+  [[ "$STATE_KERNEL" == "$KERNEL_RELEASE" ]] || fail "installed module is for $STATE_KERNEL, not $KERNEL_RELEASE"
+  [[ "$STATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{12}$ ]] || fail "invalid module version in Cask state"
+  [[ "$STATE_MODULE_SHA" =~ ^[0-9a-f]{64}$ && "$STATE_CERT_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "invalid checksums in Cask state"
+  [[ "$STATE_MANAGED_LOAD" == "0" || "$STATE_MANAGED_LOAD" == "1" ]] || fail "invalid managed_load marker"
+  if [[ "$STATE_MANAGED_LOAD" == "1" && ! "$STATE_LOAD_TOKEN" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "managed-load state is missing its controller token"
+  fi
+}
+check_loaded_identity() {
+  local loaded_version loaded_srcversion
+  loaded_version="$(cat "/sys/module/$MODULE_NAME/version" 2>/dev/null || true)"
+  [[ "$loaded_version" == "$STATE_VERSION" ]] || fail "a different vibeshine_drm build is loaded"
+  loaded_srcversion="$(cat "/sys/module/$MODULE_NAME/srcversion" 2>/dev/null || true)"
+  if [[ -n "$STATE_SRCVERSION" && -n "$loaded_srcversion" && "$STATE_SRCVERSION" != "$loaded_srcversion" ]]; then
+    fail "loaded module source identity differs from this installation"
+  fi
+}
+verify_installed_artifacts() {
+  local module_sha cert_sha module_name module_version module_vermagic sig_id module_mode cert_mode module_parameters
+  require_root_directory "$DRM_ROOT/modules"
+  require_root_directory "$DRM_ROOT/modules/$KERNEL_RELEASE"
+  require_root_directory "$DRM_ROOT/keys"
+  [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]] || fail "no module installed for running kernel ($KERNEL_RELEASE)"
+  [[ "$(stat -c '%u' "$MODULE_FILE")" == 0 ]] || fail "installed module must be owned by root"
+  [[ -f "$CERTIFICATE" && ! -L "$CERTIFICATE" ]] || fail "signing certificate is missing"
+  [[ "$(stat -c '%u' "$CERTIFICATE")" == 0 ]] || fail "signing certificate must be owned by root"
+  module_mode="$(stat -c '%a' "$MODULE_FILE")"
+  cert_mode="$(stat -c '%a' "$CERTIFICATE")"
+  (( (8#$module_mode & 0022) == 0 )) || fail "installed module must not be writable by group or others"
+  (( (8#$cert_mode & 0022) == 0 )) || fail "signing certificate must not be writable by group or others"
+  command -v modinfo >/dev/null 2>&1 || fail "modinfo from kmod is required"
+  module_sha="$(sha256sum "$MODULE_FILE" | awk '{print $1}')"
+  cert_sha="$(sha256sum "$CERTIFICATE" | awk '{print $1}')"
+  [[ "$module_sha" == "$STATE_MODULE_SHA" ]] || fail "installed module checksum changed; refusing to load"
+  [[ "$cert_sha" == "$STATE_CERT_SHA" ]] || fail "MOK.der changed after signing; reinstall the Cask"
+  module_name="$(modinfo -F name "$MODULE_FILE")"
+  module_version="$(modinfo -F version "$MODULE_FILE")"
+  module_vermagic="$(modinfo -F vermagic "$MODULE_FILE" | awk '{print $1}')"
+  sig_id="$(modinfo -F sig_id "$MODULE_FILE" 2>/dev/null || true)"
+  module_parameters="$(modinfo -F parm "$MODULE_FILE")"
+  [[ "$module_name" == "$MODULE_NAME" ]] || fail "installed file is not $MODULE_NAME.ko"
+  [[ "$module_version" == "$STATE_VERSION" ]] || fail "module version does not match Cask state"
+  [[ "$module_vermagic" == "$KERNEL_RELEASE" ]] || fail "module was built for a different kernel"
+  [[ "$module_parameters" == *"vibeshine_drmctl_token:"* ]] || fail "module lacks the controller load-identity parameter"
+  [[ -n "$sig_id" ]] || fail "installed module has no detectable signature metadata"
+}
+write_managed_load() {
+  local value="$1" token="$2" tmp
+  tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
+  awk -F= -v value="$value" -v token="$token" '
+    BEGIN { seen_load = 0; seen_token = 0 }
+    $1 == "managed_load" { print "managed_load=" value; seen_load = 1; next }
+    $1 == "load_token" { print "load_token=" token; seen_token = 1; next }
+    { print }
+    END {
+      if (!seen_load) print "managed_load=" value
+      if (!seen_token) print "load_token=" token
+    }
+  ' "$STATE_FILE" > "$tmp"
+  chown root:root "$tmp"
+  chmod 0644 "$tmp"
+  mv -f -- "$tmp" "$STATE_FILE"
+}
+check_managed_load_token() {
+  local loaded_token
+  [[ "$STATE_MANAGED_LOAD" == "1" ]] || fail "this module was not loaded by vibeshine-drmctl"
+  loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+  [[ -n "$STATE_LOAD_TOKEN" && "$loaded_token" == "$STATE_LOAD_TOKEN" ]] ||
+    fail "the loaded module does not carry this controller's token; refusing to unload it"
+}
+usage() { printf 'Usage: sudo %s {load|unload|status}\n' "$0" >&2; }
+
+action=""
+if [[ "$#" -gt 0 ]]; then action="$1"; fi
+case "$action" in
+  load)
+    require_root
+    read_state
+    verify_installed_artifacts
+    command -v modprobe >/dev/null 2>&1 || fail "modprobe from kmod is required"
+    command -v insmod >/dev/null 2>&1 || fail "insmod from kmod is required"
+    command -v od >/dev/null 2>&1 || fail "od from coreutils is required to create a load token"
+    command -v tr >/dev/null 2>&1 || fail "tr is required to create a load token"
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      check_loaded_identity
+      if [[ "$STATE_MANAGED_LOAD" == "1" ]]; then
+        check_managed_load_token
+        printf '%s is already loaded and its controller token is verified\n' "$MODULE_NAME"
+      else
+        printf '%s is already loaded (version %s), but is not managed by this controller; leaving it unchanged\n' "$MODULE_NAME" "$STATE_VERSION"
+      fi
+      exit 0
+    fi
+    dependencies="$(modinfo -F depends "$MODULE_FILE" | tr ',' ' ')"
+    for dependency in $dependencies; do
+      [[ -n "$dependency" ]] || continue
+      modprobe "$dependency"
+    done
+    LOAD_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+    [[ "$LOAD_TOKEN" =~ ^[0-9a-f]{64}$ ]] || fail "could not generate a valid controller load token"
+    if ! insmod "$MODULE_FILE" "vibeshine_drmctl_token=$LOAD_TOKEN"; then
+      printf 'The kernel refused the module. Inspect the kernel log with: journalctl -k -b\n' >&2
+      printf 'No Secure Boot key enrollment is attempted by this command.\n' >&2
+      exit 1
+    fi
+    LOADED_TOKEN="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+    if [[ "$LOADED_TOKEN" != "$LOAD_TOKEN" ]]; then
+      rmmod "$MODULE_NAME" >/dev/null 2>&1 || true
+      fail "the kernel did not expose the expected load token; rollback was attempted"
+    fi
+    if ! write_managed_load 1 "$LOAD_TOKEN"; then
+      rmmod "$MODULE_NAME" >/dev/null 2>&1 || true
+      fail "module loaded, but ownership state could not be written; rollback was attempted"
+    fi
+    printf 'Loaded %s for kernel %s\n' "$MODULE_NAME" "$KERNEL_RELEASE"
+    ;;
+  unload)
+    require_root
+    read_state
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      check_loaded_identity
+      check_managed_load_token
+      command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
+      rmmod "$MODULE_NAME" || fail "module is busy; close virtual displays and retry"
+      write_managed_load 0 ""
+      printf 'Unloaded %s\n' "$MODULE_NAME"
+    else
+      write_managed_load 0 ""
+      printf '%s is not loaded\n' "$MODULE_NAME"
+    fi
+    ;;
+  status)
+    if [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]]; then
+      read_state
+      printf 'Installed module: %s\n' "$MODULE_FILE"
+      if [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]]; then
+        actual_sha="$(sha256sum "$MODULE_FILE" | awk '{print $1}')"
+        if [[ "$actual_sha" == "$STATE_MODULE_SHA" ]]; then
+          printf 'Module integrity: matches installation state\n'
+        else
+          printf 'Module integrity: MISMATCH (do not load)\n'
+        fi
+      else
+        printf 'Module integrity: missing\n'
+      fi
+      if [[ "$STATE_MANAGED_LOAD" == "1" && -d "/sys/module/$MODULE_NAME" ]]; then
+        loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+        if [[ "$loaded_token" == "$STATE_LOAD_TOKEN" ]]; then
+          printf 'Controller-managed load: confirmed\n'
+        else
+          printf 'Controller-managed load: token mismatch (will not auto-unload)\n'
+        fi
+      else
+        printf 'Controller-managed load recorded: %s\n' "$STATE_MANAGED_LOAD"
+      fi
+    else
+      printf 'No Cask installation state for kernel %s\n' "$KERNEL_RELEASE"
+    fi
+    if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+      loaded_version="$(cat "/sys/module/$MODULE_NAME/version" 2>/dev/null || true)"
+      [[ -n "$loaded_version" ]] || loaded_version="unknown"
+      printf '%s is loaded (version %s)\n' "$MODULE_NAME" "$loaded_version"
+    else
+      printf '%s is not loaded\n' "$MODULE_NAME"
+    fi
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

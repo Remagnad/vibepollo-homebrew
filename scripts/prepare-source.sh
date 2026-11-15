@@ -66,6 +66,15 @@ for path in "${submodules[@]}"; do
 done
 echo "::endgroup::"
 
+# Preserve the exact libvirtualdisplay gitlink selected by the upstream release.
+# The DRM Formula uses this pinned revision instead of following a floating branch.
+libvirtualdisplay_commit="$(git -C "$source_dir/third-party/libvirtualdisplay" rev-parse HEAD)"
+if [[ ! "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid libvirtualdisplay submodule commit: $libvirtualdisplay_commit" >&2
+    exit 1
+fi
+printf '%s\n' "$libvirtualdisplay_commit" > "${output_tarball}.libvirtualdisplay-commit"
+
 # inputtino's PS5 UHID implementation includes this submodule's shared UAPI
 # header even when the privileged kernel module itself is not built/installed.
 test -f "$source_dir/third-party/libvirtualgamepad/linux/vibeshine-ds5/vibeshine_ds5_uapi.h" || {
