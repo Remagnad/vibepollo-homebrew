@@ -201,7 +201,6 @@ for label, passed in checks:
         raise SystemExit(f"Failed DRM lifecycle check: {label}")
 
 print("Vibeshine DRM Formula/Cask syntax, payloads, published checksum, renderer and lifecycle checks passed.")
-, formula_text, re.MULTILINE)
 if not source_url_match:
     raise SystemExit("DRM Formula source URL is missing")
 source_url = source_url_match.group(1)
