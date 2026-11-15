@@ -19,7 +19,7 @@ formula = root / "Formula/vibepollo-drm.rb"
 cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
 payload_files = [
-    "install.sh", "uninstall.sh", "vibeshine-drmctl",
+    "install.sh", "uninstall.sh", "vibepollo-askpass", "vibeshine-drmctl",
     "vibeshine-vkms", "vibeshine-vkms-quiesce",
     "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
     "vibeshine-vkms-control@.service",
@@ -33,7 +33,7 @@ if not migration_helper.is_file() or migration_helper.is_symlink():
     raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
 subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
 
-for name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
+for name in ("install.sh", "uninstall.sh", "vibepollo-askpass", "vibeshine-drmctl"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
@@ -96,7 +96,7 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                if member.name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
+                if member.name in ("install.sh", "uninstall.sh", "vibepollo-askpass", "vibeshine-drmctl"):
                     source_path = payload_dir / member.name
                 elif member.name in payload_files[-3:]:
                     source_path = integration_dir / member.name
@@ -213,12 +213,12 @@ uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
-    ("Cask removes inherited graphical askpass only for interactive uninstall", 'if $stdin.tty? && ENV.key?("SUDO_ASKPASS")' in cask_text and 'ENV.delete("SUDO_ASKPASS")' in cask_text),
-    ("Cask restores askpass after uninstall and on process exit", 'ENV["SUDO_ASKPASS"] = saved_sudo_askpass' in cask_text and "at_exit do" in cask_text and "uninstall_postflight do" in cask_text),
-    ("Cask delegates uninstall privilege escalation to Homebrew", re.search(r"(?s)uninstall script: \{.*?sudo:\s*true", cask_text) is not None),
+    ("Cask delegates privileged uninstall to Homebrew install steps", "uninstall_preflight_steps do" in cask_text and 'run "uninstall.sh"' in cask_text and "sudo: true" in cask_text),
+    ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask installer elevates through sudo", 'exec sudo -- "$0" "$@"' in install_text),
     ("Cask uninstaller requires Homebrew root execution", '[[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"' in uninstall_text),
     ("Cask uninstaller does not invoke sudo itself", "sudo -v" not in uninstall_text and "SUDO_ASKPASS" not in uninstall_text and "sudo -n" not in uninstall_text),
+    ("terminal askpass reads the password without echo", "read -r -s password" in (payload_dir / "vibepollo-askpass").read_text(encoding="utf-8")),
     ("Cask uninstaller bounds systemd and rmmod operations", 'systemctl_bounded 45' in uninstall_text and 'timeout --foreground --kill-after=5s 10s rmmod' in uninstall_text),
     ("pinned source commit in formula", "b6874684d82925d0d76f487d8e4ba3ec71c9721a" in formula_text),
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
