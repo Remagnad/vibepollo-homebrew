@@ -1,4 +1,4 @@
-name: Watch upstream stable releases
+name: Build and publish Vibepollo app bottle
 
 on:
   schedule:
