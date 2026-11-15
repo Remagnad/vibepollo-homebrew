@@ -127,7 +127,7 @@ jobs:
           python3 - "$archive" <<'PY'
           import pathlib, sys, tarfile
           expected = {
-              "install.sh", "uninstall.sh", "vibepollo-askpass", "vibeshine-drmctl",
+              "install.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl",
               "vibeshine-vkms", "vibeshine-vkms-quiesce",
               "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
               "vibeshine-vkms-control@.service",
