@@ -167,7 +167,7 @@ def validate_artifacts(artifacts: object) -> list:
     if len(preflight) != 1 or not isinstance(preflight[0], list):
         raise RuntimeError("Current Cask metadata does not contain exactly one uninstall_preflight_steps artifact")
     serialized = json.dumps(preflight[0])
-    required = ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass", "vibepollo-original-askpass", "uninstall.sh")
+    required = ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass", "uninstall.sh")
     if any(marker not in serialized for marker in required):
         raise RuntimeError("Current Homebrew uninstall step is missing sudo or the terminal askpass override")
     return artifacts
@@ -179,7 +179,6 @@ def self_test() -> None:
             "steps": [{
                 "type": "run",
                 "command": {"base": "staged_path", "path": "vibepollo-askpass"},
-                "stdout_path": {"base": "staged_path", "path": "vibepollo-original-askpass"},
             }, {
                 "type": "run",
                 "command": {"base": "staged_path", "path": "uninstall.sh"},
