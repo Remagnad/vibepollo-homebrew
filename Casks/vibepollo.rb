@@ -25,6 +25,7 @@ cask "vibepollo" do
 
   uninstall script: {
     executable: "#{staged_path}/uninstall.sh",
+    sudo:      true,
   }
 
   caveats <<~EOS
