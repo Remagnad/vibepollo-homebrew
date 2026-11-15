@@ -53,7 +53,7 @@ Example key setup (replace the source private-key filename if yours differs):
 Install the DRM Formula from source before installing the Cask:
 
     brew install --build-from-source Remagnad/vibepollo-homebrew/vibepollo-drm
-    bbrew install --cask Remagnad/vibepollo-homebrew/vibepollo
+    brew install --cask Remagnad/vibepollo-homebrew/vibepollo
 
 Load, inspect, or unload the module manually:
 
