@@ -162,9 +162,28 @@ def main() -> int:
     if installed_uninstaller.is_symlink():
         raise RuntimeError(f"Refusing symbolic-link uninstaller: {installed_uninstaller}")
 
-    receipt_path = caskroom / ".metadata" / "INSTALL_RECEIPT.json"
-    if not receipt_path.is_file() or receipt_path.is_symlink():
-        raise RuntimeError(f"Installed Cask receipt is missing or unsafe: {receipt_path}")
+    # Homebrew stores each Cask receipt beside its timestamped installed
+    # Cask definition: Caskroom/<token>/.metadata/<version>/<timestamp>/
+    # INSTALL_RECEIPT.json. There is no receipt at .metadata/INSTALL_RECEIPT.json.
+    metadata_version_dir = caskroom / ".metadata" / installed_dir.name
+    if not metadata_version_dir.is_dir() or metadata_version_dir.is_symlink():
+        raise RuntimeError(f"Installed Cask metadata directory is missing or unsafe: {metadata_version_dir}")
+    metadata_snapshots = [
+        path for path in metadata_version_dir.iterdir()
+        if path.is_dir() and not path.is_symlink()
+        and (path / "INSTALL_RECEIPT.json").is_file()
+        and not (path / "INSTALL_RECEIPT.json").is_symlink()
+        and any((path / "Casks" / f"{TOKEN}.{ext}").is_file()
+                and not (path / "Casks" / f"{TOKEN}.{ext}").is_symlink()
+                for ext in ("json", "rb"))
+    ]
+    if not metadata_snapshots:
+        raise RuntimeError(
+            f"No timestamped Homebrew receipt for installed Vibepollo {installed_dir.name} "
+            f"was found under {metadata_version_dir}"
+        )
+    metadata_snapshot = max(metadata_snapshots, key=lambda path: path.name)
+    receipt_path = metadata_snapshot / "INSTALL_RECEIPT.json"
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     uninstall_artifacts = receipt.get("uninstall_artifacts")
     if not isinstance(uninstall_artifacts, list) or not contains_uninstall_script(uninstall_artifacts):
