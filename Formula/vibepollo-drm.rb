@@ -31,7 +31,6 @@ class VibepolloDrm < Formula
     kernel_build_link = kernel_build_candidates.find do |candidate|
       candidate.directory? &&
         (candidate/"Makefile").file? &&
-        (candidate/"scripts/sign-file").executable? &&
         (candidate/"include/generated/autoconf.h").file?
     end
     odie <<~EOS unless kernel_build_link
