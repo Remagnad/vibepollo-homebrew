@@ -6,7 +6,6 @@ class VibepolloDrm < Formula
   sha256 "f8bb2fdd872de4deb92020787f31bdf2e6722c4cdc2efae18d8345d2a34bcb5a"
   license "GPL-2.0-only"
 
-
   depends_on "make" => :build
   depends_on arch: :x86_64
   depends_on :linux
