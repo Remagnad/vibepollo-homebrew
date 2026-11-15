@@ -10,9 +10,13 @@ fail() { printf 'vibepollo Cask uninstaller: error: %s\n' "$*" >&2; exit 1; }
 if [[ "$EUID" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || fail "sudo is required for privileged removal"
   [[ -r /dev/tty ]] || fail "no controlling terminal is available; run brew uninstall from a terminal"
-  log "requesting administrator authentication in this terminal"
-  if ! env -u SUDO_ASKPASS sudo -v -p 'Vibepollo Cask removal — password: ' </dev/tty; then
-    fail "administrator authentication failed"
+  # Homebrew may execute uninstall artifacts from a child process group.
+  # Reuse an existing timestamp first: this path never reads from the TTY.
+  if ! env -u SUDO_ASKPASS sudo -n -v; then
+    log "requesting administrator authentication in this terminal"
+    if ! env -u SUDO_ASKPASS sudo -v -p 'Vibepollo Cask removal — password: ' </dev/tty; then
+      fail "administrator authentication failed"
+    fi
   fi
   exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"
 fi
