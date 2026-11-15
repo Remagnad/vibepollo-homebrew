@@ -43,6 +43,31 @@ for name in payload_files[-3:]:
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe systemd unit: {path}")
 
+# Regression test: some systemd builds report an inactive unit as exit 4
+# while still printing the unambiguous state "inactive".
+unit_match = re.search(
+    r"(?ms)^unit_is_active\\(\\) \\{\\n.*?^\\}",
+    (payload_dir / "uninstall.sh").read_text(encoding="utf-8"),
+)
+if not unit_match or "4:inactive" not in unit_match.group(0):
+    raise SystemExit("Uninstaller must treat systemctl exit 4 + inactive as an inactive unit")
+with tempfile.TemporaryDirectory(prefix="vibepollo-systemctl-test-") as temp:
+    mock_bin = pathlib.Path(temp) / "bin"
+    mock_bin.mkdir()
+    mock_systemctl = mock_bin / "systemctl"
+    mock_systemctl.write_text("#!/bin/sh\\nprintf 'inactive\\n'\\nexit 4\\n")
+    mock_systemctl.chmod(0o755)
+    harness = (
+        'fail() { echo "unexpected failure: $*" >&2; exit 99; }\\n'
+        + unit_match.group(0)
+        + '\\nif unit_is_active vibeshine-vkms.service; then '
+          'echo "inactive unit reported active" >&2; exit 1; '
+          'else rc=$?; test "$rc" -eq 1; fi\\n'
+    )
+    env = os.environ.copy()
+    env["PATH"] = f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}"
+    subprocess.run(["bash", "-c", harness], env=env, check=True)
+
 cask_text = cask.read_text(encoding="utf-8")
 version_match = re.search(r'^  version "([^"]+)"$', cask_text, re.MULTILINE)
 sha_match = re.search(r'^  sha256 "([0-9a-f]{64})"$', cask_text, re.MULTILINE)
