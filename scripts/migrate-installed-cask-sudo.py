@@ -51,9 +51,9 @@ def contains_uninstall_script(value: object) -> bool:
 def self_test() -> None:
     receipt = {
         "uninstall_artifacts": [
-            {"script": [{"executable": "/home/linuxbrew/Caskroom/vibepollo/2.0.6/uninstall.sh"},
-                        {"sudo": True, "args": []}]},
-            {"delete": ["/var/lib/vibepollo/drm/old-file"]},
+            {"uninstall": [{"script": {"executable": "/home/linuxbrew/Caskroom/vibepollo/2.0.6/uninstall.sh",
+                                         "sudo": True, "args": []}}]},
+            {"uninstall": [{"delete": ["/var/lib/vibepollo/drm/old-file"]}]},
         ],
         "install_artifacts": [{"script": [{"sudo": True}]}],
     }
@@ -61,7 +61,7 @@ def self_test() -> None:
     assert contains_uninstall_script(uninstall)
     removed = remove_sudo_true(uninstall)
     assert removed == 1
-    assert "sudo" not in uninstall[0]["script"][1]
+    assert "sudo" not in uninstall[0]["uninstall"][0]["script"]
     assert receipt["install_artifacts"][0]["script"][0]["sudo"] is True
     print("PASS: installed Cask receipt migration")
 
