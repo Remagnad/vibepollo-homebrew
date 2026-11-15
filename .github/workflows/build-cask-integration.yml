@@ -134,7 +134,7 @@ jobs:
           grep -vE '(^|[[:space:]])vibepollo-drm-integration-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$' "$manifest" > "$manifest.new" || true
           mv "$manifest.new" "$manifest"
           (cd dist && sha256sum "$(basename "$asset")" >> SHA256SUMS)
-          (cd dist && sha256sum --check SHA256SUMS)
+          (cd dist && sha256sum --check <(grep -F "  $(basename "$asset")" SHA256SUMS))
           gh release upload "$RELEASE_TAG" "$asset" "$manifest" \
             --repo "$GITHUB_REPOSITORY" --clobber
 
@@ -145,6 +145,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
           python3 - "$VERSION" "$CASK_SHA256" <<'PY'
           import pathlib, re, sys
           path = pathlib.Path("Casks/vibepollo.rb")
@@ -153,7 +155,7 @@ jobs:
           current_version = re.findall(r'^  version "([^"]+)"$', source, re.M)
           if current_version != [version]:
               raise SystemExit(
-                  f"Cask version {current_version!r} does not match published app version {version}"
+                  f"main now has Cask version {current_version!r}, not {version}; refusing to publish a stale payload"
               )
           updated, count = re.subn(
               r'^  sha256 "[0-9a-f]{64}"$',
