@@ -62,7 +62,7 @@ class VibepolloDrm < Formula
     module_build = buildpath/"vibeshine-drm-build"
     cp_r module_source, module_build
     (module_build/"vibeshine_drm_version.h").write(
-      "#define VIBESHINE_DRM_VERSION \"#{module_version}\"\n"
+      "#define VIBESHINE_DRM_VERSION \"#{module_version}\"\n",
     )
 
     make_args = []
