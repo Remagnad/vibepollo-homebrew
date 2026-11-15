@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 
 
@@ -70,8 +71,8 @@ def load_release_metadata(tap_root: pathlib.Path) -> tuple[str, str, str]:
     if not cask_file.is_file() or cask_file.is_symlink():
         raise RuntimeError(f"Cannot read current Cask definition: {cask_file}")
     text = cask_file.read_text(encoding="utf-8")
-    version_match = re.search(r'^\\s*version "([0-9]+\\.[0-9]+\\.[0-9]+)"$', text, re.MULTILINE)
-    sha_match = re.search(r'^\\s*sha256 "([0-9a-f]{64})"$', text, re.MULTILINE)
+    version_match = re.search(r'^\s*version "([0-9]+\\.[0-9]+\\.[0-9]+)"$', text, re.MULTILINE)
+    sha_match = re.search(r'^\s*sha256 "([0-9a-f]{64})"$', text, re.MULTILINE)
     if not version_match or not sha_match:
         raise RuntimeError("Current Vibepollo Cask version or SHA-256 is invalid")
     version = version_match.group(1)
@@ -171,7 +172,7 @@ def main() -> int:
 
     updated_script = download_uninstaller(payload_url, expected_sha)
     removed = remove_sudo_true(uninstall_artifacts)
-    updated_receipt = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\\n").encode("utf-8")
+    updated_receipt = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-terminal-sudo")
     if removed and backup.exists():
