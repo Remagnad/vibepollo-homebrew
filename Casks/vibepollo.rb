@@ -19,7 +19,7 @@ cask "vibepollo" do
     args:       [
       "#{HOMEBREW_PREFIX}/opt/vibepollo-drm",
       "#{HOMEBREW_PREFIX}/opt/vibepollo-app",
-      "#{staged_path}",
+      staged_path,
     ],
     sudo:       true,
   }
