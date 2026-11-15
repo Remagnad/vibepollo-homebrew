@@ -179,7 +179,7 @@ checks = [
     ("unencrypted-key validation", "-passin pass:" in install_text),
     ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
     ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
-    ("systemd pool units are not enabled by the package", re.search(r"^\\[Install\\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
+    ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
     ("Cask does not start or enable services", "systemctl start" not in install_text and "systemctl enable" not in install_text),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
     ("no service activation", "systemctl enable" not in install_text and "systemctl start" not in install_text),
