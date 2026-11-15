@@ -503,9 +503,9 @@ jobs:
           # substitution: capture the command first so pipefail can stop the job.
           dependency_output="$(brew deps --include-build --include-optional --include-test "$formula")"
           mapfile -t app_dependencies < <(
-            printf '%s\\n' "$dependency_output" |
+            printf '%s\n' "$dependency_output" |
               sed 's/^[^:]*: //' |
-              tr ' ' '\\n' |
+              tr ' ' '\n' |
               sed '/^$/d' |
               sort -u
           )
