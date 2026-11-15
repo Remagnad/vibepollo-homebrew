@@ -1,0 +1,187 @@
+name: Build and publish Vibepollo Cask integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cask-payload/**"
+      - "integration/**"
+      - "scripts/package-cask-payload.sh"
+      - "scripts/test-drm-packages.py"
+      - "scripts/migrate-installed-cask-sudo.py"
+      - ".github/workflows/build-cask-integration.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vibepollo-cask-integration
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+
+jobs:
+  package-and-publish:
+    name: Package and publish privileged Cask integration only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Read the currently published upstream version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < upstream-version)"
+          tag="$(tr -d '[:space:]' < upstream-tag)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$tag" == "$version" || "$tag" == "v$version" ]]
+          release_json="$(gh api "repos/Remagnad/vibepollo-homebrew/releases/tags/vibepollo-$version")"
+          published_at="$(jq -r '.published_at' <<<"$release_json")"
+          [[ "$published_at" != "null" && -n "$published_at" ]]
+          source_asset="vibepollo-source-$version.tar.gz"
+          if ! jq -e --arg name "$source_asset" '.assets[] | select(.name == $name)' <<<"$release_json" >/dev/null; then
+            echo "::error::The published app release has no verified source archive $source_asset"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "published_at=$published_at"
+            echo "source_asset=$source_asset"
+            echo "release_tag=vibepollo-$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set reproducible archive timestamp
+        env:
+          PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+        run: echo "SOURCE_DATE_EPOCH=$(date -u --date="$PUBLISHED_AT" +%s)" >> "$GITHUB_ENV"
+
+      - name: Download the exact source archive used by the app release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          SOURCE_ASSET: ${{ steps.release.outputs.source_asset }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$SOURCE_ASSET" --dir dist
+          test -s "dist/$SOURCE_ASSET"
+
+      - name: Validate Cask scripts and package policy
+        env:
+          VIBEPOLLO_SKIP_PUBLISHED_ASSET_CHECK: "1"
+        run: python3 scripts/test-drm-packages.py
+
+      - name: Build only the Cask integration archive
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_ASSET: ${{ steps.release.outputs.source_asset }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="dist/vibepollo-drm-integration-$VERSION.tar.gz"
+          bash scripts/package-cask-payload.sh "$output" "dist/$SOURCE_ASSET"
+          sha256sum "$output" | tee dist/cask-sha256.txt
+          echo "CASK_SHA256=$(awk '{print $1}' dist/cask-sha256.txt)" >> "$GITHUB_ENV"
+
+      - name: Verify Cask archive contents and deterministic checksum
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_ASSET: ${{ steps.release.outputs.source_asset }}
+        run: |
+          set -Eeuo pipefail
+          archive="dist/vibepollo-drm-integration-$VERSION.tar.gz"
+          python3 - "$archive" <<'PY'
+          import pathlib, sys, tarfile
+          expected = {
+              "install.sh", "uninstall.sh", "vibeshine-drmctl",
+              "vibeshine-vkms", "vibeshine-vkms-quiesce",
+              "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
+              "vibeshine-vkms-control@.service",
+          }
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              members = archive.getmembers()
+              names = {member.name for member in members}
+              if names != expected or len(members) != len(expected):
+                  raise SystemExit(f"Unexpected Cask archive members: {sorted(names)}")
+              if any(not member.isfile() for member in members):
+                  raise SystemExit("Cask archive contains a non-regular file")
+          print("Cask archive contains exactly the expected privileged integration files.")
+          PY
+
+      - name: Update the release Cask asset and checksum manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          asset="dist/vibepollo-drm-integration-$VERSION.tar.gz"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern SHA256SUMS --dir dist
+          manifest="dist/SHA256SUMS"
+          test -s "$manifest"
+          grep -vE '(^|[[:space:]])vibepollo-drm-integration-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$' "$manifest" > "$manifest.new" || true
+          mv "$manifest.new" "$manifest"
+          (cd dist && sha256sum "$(basename "$asset")" >> SHA256SUMS)
+          (cd dist && sha256sum --check SHA256SUMS)
+          gh release upload "$RELEASE_TAG" "$asset" "$manifest" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Update only the Cask payload SHA in the tap
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CASK_SHA256: ${{ env.CASK_SHA256 }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$VERSION" "$CASK_SHA256" <<'PY'
+          import pathlib, re, sys
+          path = pathlib.Path("Casks/vibepollo.rb")
+          source = path.read_text(encoding="utf-8")
+          version, digest = sys.argv[1:]
+          current_version = re.findall(r'^  version "([^"]+)"$', source, re.M)
+          if current_version != [version]:
+              raise SystemExit(
+                  f"Cask version {current_version!r} does not match published app version {version}"
+              )
+          updated, count = re.subn(
+              r'^  sha256 "[0-9a-f]{64}"$',
+              f'  sha256 "{digest}"',
+              source,
+              count=1,
+              flags=re.M,
+          )
+          if count != 1:
+              raise SystemExit("Expected exactly one Cask SHA-256 line")
+          path.write_text(updated, encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/vibepollo.rb
+          if git diff --cached --quiet; then
+            echo "Cask SHA-256 is already current."
+          else
+            git commit -m "Update Vibepollo Cask integration payload checksum"
+            git push origin HEAD:main
+          fi
+
+      - name: Report Cask-only publication
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CASK_SHA256: ${{ env.CASK_SHA256 }}
+        run: |
+          echo "Published Cask integration for Vibepollo $VERSION"
+          echo "Cask SHA-256: $CASK_SHA256"
+          echo "The application bottle workflow was not run."
