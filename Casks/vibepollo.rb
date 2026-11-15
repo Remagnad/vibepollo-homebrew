@@ -23,16 +23,17 @@ cask "vibepollo" do
     ],
   }
 
-  # Homebrew adds `sudo -A` whenever SUDO_ASKPASS is present in its process
-  # environment. Prefer sudo's terminal prompt when this Cask is removed from
-  # an interactive terminal, without changing the user's shell or system
-  # configuration. Restore the original value after the uninstall (or when
-  # Homebrew exits after a failed uninstall).
+  # Homebrew adds `sudo -A` whenever SUDO_ASKPASS is present in its
+  # process environment. For interactive Cask removal, temporarily remove
+  # that variable before the privileged artifact constructs its sudo command.
+  # The old block API is required here because install steps run in a child
+  # command and cannot modify the parent Homebrew process environment.
+  # rubocop:disable Cask/InstallSteps, Cask/StanzaOrder
   saved_sudo_askpass = nil
   saved_sudo_askpass_present = false
 
   uninstall_preflight do
-    if STDIN.tty? && ENV.key?("SUDO_ASKPASS")
+    if $stdin.tty? && ENV.key?("SUDO_ASKPASS")
       saved_sudo_askpass = ENV.delete("SUDO_ASKPASS")
       saved_sudo_askpass_present = true
       at_exit do
@@ -53,6 +54,7 @@ cask "vibepollo" do
       saved_sudo_askpass_present = false
     end
   end
+  # rubocop:enable Cask/InstallSteps, Cask/StanzaOrder
 
   caveats <<~EOS
     Before installing, copy your existing Secure Boot key pair to:
