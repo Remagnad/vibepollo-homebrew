@@ -63,8 +63,9 @@ class VibepolloDrm < Formula
     driver_source = module_build/"vkms_drv.c"
     driver_marker = "static struct vkms_config *default_config;\n"
     driver_content = driver_source.read
-    odie "Pinned Vibeshine DRM source no longer has the expected driver marker" unless
-      driver_content.scan(driver_marker).length == 1
+    if driver_content.scan(driver_marker).length != 1
+      odie "Pinned Vibeshine DRM source no longer has the expected driver marker"
+    end
     load_token_parameter = <<~C
       /* Set only by vibeshine-drmctl to identify its own module load. */
       static char vibeshine_drmctl_token[65];
