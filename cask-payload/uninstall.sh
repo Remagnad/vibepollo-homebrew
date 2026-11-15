@@ -26,6 +26,13 @@ if [[ ! -e "$DRM_ROOT" && ! -L "$DRM_ROOT" ]]; then
 fi
 for parent in /var /var/lib /var/lib/vibepollo "$DRM_ROOT"; do require_root_directory "$parent"; done
 if [[ -e "$STATE_DIR" || -L "$STATE_DIR" ]]; then require_root_directory "$STATE_DIR"; fi
+if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
+  [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail "refusing unsafe installation state file"
+  [[ "$(stat -c '%u' "$STATE_FILE")" == 0 ]] || fail "installation state must be owned by root"
+  state_mode="$(stat -c '%a' "$STATE_FILE")"
+  (( (8#$state_mode & 0022) == 0 )) || fail "installation state must not be writable by group or others"
+fi
+command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 
 # Stop the optional pool before touching its helpers or the DRM module.
 if command -v systemctl >/dev/null 2>&1; then
