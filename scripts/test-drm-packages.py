@@ -17,15 +17,25 @@ root = pathlib.Path(__file__).resolve().parents[1]
 formula = root / "Formula/vibepollo-drm.rb"
 cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
-payload_files = ["install.sh", "uninstall.sh", "vibeshine-drmctl"]
+payload_files = [
+    "install.sh", "uninstall.sh", "vibeshine-drmctl",
+    "vibeshine-vkms", "vibeshine-vkms-quiesce",
+    "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
+    "vibeshine-vkms-control@.service",
+]
+integration_dir = root / "integration"
 
 for ruby_file in (formula, cask):
     subprocess.run(["ruby", "-c", str(ruby_file)], check=True)
-for name in payload_files:
+for name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
     subprocess.run(["bash", "-n", str(path)], check=True)
+for name in payload_files[-3:]:
+    path = integration_dir / name
+    if not path.is_file() or path.is_symlink():
+        raise SystemExit(f"Missing or unsafe systemd unit: {path}")
 
 cask_text = cask.read_text(encoding="utf-8")
 version_match = re.search(r'^  version "([^"]+)"$', cask_text, re.MULTILINE)
@@ -55,13 +65,27 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                source_path = payload_dir / member.name
+                if member.name in ("install.sh", "uninstall.sh", "vibeshine-drmctl"):
+                    source_path = payload_dir / member.name
+                elif member.name in payload_files[-3:]:
+                    source_path = integration_dir / member.name
+                else:
+                    source_path = None
                 stream = bundle.extractfile(member)
-                if stream is None or stream.read() != source_path.read_bytes():
+                if stream is None:
+                    raise SystemExit(f"Could not read {label} member: {member.name}")
+                member_bytes = stream.read()
+                if source_path is not None and member_bytes != source_path.read_bytes():
                     raise SystemExit(f"{label} content differs from {source_path}")
-                expected_mode = stat.S_IMODE(source_path.stat().st_mode)
-                if stat.S_IMODE(member.mode) != expected_mode:
-                    raise SystemExit(f"{label} permissions differ for {member.name}")
+                if source_path is not None:
+                    expected_mode = stat.S_IMODE(source_path.stat().st_mode)
+                    if stat.S_IMODE(member.mode) != expected_mode:
+                        raise SystemExit(f"{label} permissions differ for {member.name}")
+                if member.name in ("vibeshine-vkms", "vibeshine-vkms-quiesce"):
+                    with tempfile.NamedTemporaryFile() as script:
+                        script.write(member_bytes)
+                        script.flush()
+                        subprocess.run(["bash", "-n", script.name], check=True)
     except tarfile.TarError as error:
         raise SystemExit(f"Invalid {label} archive: {error}") from error
 
