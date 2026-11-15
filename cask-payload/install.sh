@@ -161,9 +161,31 @@ DEST_DIR="$MODULES_DIR/$KERNEL_RELEASE"
 [[ ! -L "$BIN_DIR/vibeshine-drmctl" && ! -L "$BIN_DIR/vibeshine-drmctl.new" ]] ||
   fail "refusing symbolic-link controller destination"
 install -o root -g root -m 0644 "$TMP_DIR/vibeshine_drm.ko" "$DEST_DIR/vibeshine_drm.ko.new"
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  [[ ! -L "$BIN_DIR/$helper" && ! -L "$BIN_DIR/$helper.new" ]] || fail "refusing symbolic-link helper destination: $BIN_DIR/$helper"
+done
 install -o root -g root -m 0755 "$STAGED_HELPER" "$BIN_DIR/vibeshine-drmctl.new"
+install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms" "$BIN_DIR/vibeshine-vkms.new"
+install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms-quiesce" "$BIN_DIR/vibeshine-vkms-quiesce.new"
+install -o root -g root -m 0755 "$PEERCRED_HELPER" "$BIN_DIR/vibeshine-vkms-peercred.new"
 mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
-mv -f -- "$BIN_DIR/vibeshine-drmctl.new" "$BIN_DIR/vibeshine-drmctl"
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  mv -f -- "$BIN_DIR/$helper.new" "$BIN_DIR/$helper"
+done
+UNIT_DIR="/etc/systemd/system"
+install -d -o root -g root -m 0755 "$UNIT_DIR"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  [[ ! -L "$UNIT_DIR/$unit" ]] || fail "refusing symbolic-link systemd unit: $UNIT_DIR/$unit"
+done
+sed "s/@VIBESHINE_SOCKET_USER@/$SOCKET_USER/g" "$STAGED_DIR/vibeshine-vkms-control.socket" > "$TMP_DIR/vibeshine-vkms-control.socket"
+for unit in vibeshine-vkms.service vibeshine-vkms-control@.service; do
+  install -o root -g root -m 0644 "$STAGED_DIR/$unit" "$UNIT_DIR/$unit.new"
+done
+install -o root -g root -m 0644 "$TMP_DIR/vibeshine-vkms-control.socket" "$UNIT_DIR/vibeshine-vkms-control.socket.new"
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  mv -f -- "$UNIT_DIR/$unit.new" "$UNIT_DIR/$unit"
+done
+systemctl daemon-reload
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
 printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\n' \
