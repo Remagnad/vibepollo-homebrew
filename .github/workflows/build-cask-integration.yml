@@ -67,6 +67,7 @@ jobs:
 
       - name: Download the exact source archive used by the app release
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
           SOURCE_ASSET: ${{ steps.release.outputs.source_asset }}
         run: |
