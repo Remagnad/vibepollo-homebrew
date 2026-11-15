@@ -21,17 +21,8 @@ if [[ -r "$tty_device" && -w "$tty_device" ]]; then
   exit 0
 fi
 
-# If there is no terminal, preserve the user's original askpass choice rather
-# than breaking non-interactive environments that intentionally use a GUI.
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-original_askpass_file="$script_dir/vibepollo-original-askpass"
-original_askpass=""
-if [[ -r "$original_askpass_file" ]]; then
-  IFS= read -r original_askpass < "$original_askpass_file" || true
-fi
-if [[ -n "$original_askpass" && -x "$original_askpass" ]]; then
-  exec "$original_askpass" "$prompt"
-fi
-
-printf 'vibepollo askpass: no interactive terminal or usable original askpass is available.\n' >&2
+# Homebrew invokes this helper only because the Cask explicitly selected it.
+# Without a controlling terminal there is no safe universal way to display a
+# password prompt; fail clearly instead of launching a desktop-specific UI.
+printf 'vibepollo askpass: no interactive terminal is available for sudo authentication.\\n' >&2
 exit 1
