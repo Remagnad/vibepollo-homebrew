@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Static syntax, packaging, checksum and lifecycle checks for the DRM packages."""
+"""Static syntax, packaging, published-checksum and lifecycle checks for DRM packages."""
 from __future__ import annotations
 
 import hashlib
+import io
 import pathlib
 import re
+import stat
 import subprocess
+import tarfile
 import tempfile
+import urllib.error
+import urllib.request
 
 root = pathlib.Path(__file__).resolve().parents[1]
 formula = root / "Formula/vibepollo-drm.rb"
@@ -22,47 +27,103 @@ for name in payload_files:
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
     subprocess.run(["bash", "-n", str(path)], check=True)
 
+cask_text = cask.read_text(encoding="utf-8")
+version_match = re.search(r'^  version "([^"]+)"$', cask_text, re.MULTILINE)
+sha_match = re.search(r'^  sha256 "([0-9a-f]{64})"$', cask_text, re.MULTILINE)
+url_match = re.search(r'^  url "([^"]+)"$', cask_text, re.MULTILINE)
+if not version_match or not sha_match or not url_match:
+    raise SystemExit("Cask must define one version, URL and 64-character payload SHA-256")
+
+version = version_match.group(1)
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+    raise SystemExit(f"Invalid stable Cask version: {version!r}")
+expected_url_template = (
+    'https://github.com/Remagnad/vibepollo-homebrew/releases/download/'
+    'vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz'
+)
+if url_match.group(1) != expected_url_template:
+    raise SystemExit("Cask URL must remain version-interpolated and point at the release payload")
+published_url = url_match.group(1).replace("#{version}", version)
+
+def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as bundle:
+            members = bundle.getmembers()
+            names = [member.name for member in members]
+            if sorted(names) != sorted(payload_files):
+                raise SystemExit(f"Unexpected {label} members: {names}")
+            for member in members:
+                if not member.isfile():
+                    raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
+                source_path = payload_dir / member.name
+                stream = bundle.extractfile(member)
+                if stream is None or stream.read() != source_path.read_bytes():
+                    raise SystemExit(f"{label} content differs from {source_path}")
+                expected_mode = stat.S_IMODE(source_path.stat().st_mode)
+                if stat.S_IMODE(member.mode) != expected_mode:
+                    raise SystemExit(f"{label} permissions differ for {member.name}")
+    except tarfile.TarError as error:
+        raise SystemExit(f"Invalid {label} archive: {error}") from error
+
+# Validate the package script independently. Its archive timestamp may differ
+# from the published release timestamp, so its compressed SHA is not expected
+# to equal the Cask's SHA-256.
 with tempfile.TemporaryDirectory(prefix="vibepollo-drm-check-") as temp:
     archive = pathlib.Path(temp) / "vibepollo-drm-integration.tar.gz"
-    subprocess.run(["bash", str(root / "scripts/package-cask-payload.sh"), str(archive)], check=True)
-    listing = subprocess.run(
-        ["tar", "-tzf", str(archive)], check=True, capture_output=True, text=True
-    ).stdout.splitlines()
-    if sorted(listing) != sorted(payload_files):
-        raise SystemExit(f"Unexpected Cask payload members: {listing}")
-
-    archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
-    cask_text = cask.read_text(encoding="utf-8")
-    sha_match = re.search(r'^  sha256 "([0-9a-f]{64})"$', cask_text, re.MULTILINE)
-    if not sha_match:
-        raise SystemExit("Cask must contain one 64-character payload SHA-256")
-    if sha_match.group(1) != archive_sha:
-        raise SystemExit(f"Stale Cask checksum: expected {archive_sha}, found {sha_match.group(1)}")
-
     subprocess.run(
-        [
-            "python3", str(root / "scripts/render-drm-packages.py"),
-            "--version", "9.8.7",
-            "--source-url", "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-9.8.7/vibepollo-source-9.8.7.tar.gz",
-            "--source-sha", "a" * 64,
-            "--libvirtualdisplay-commit", "b" * 40,
-            "--cask-url", "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-9.8.7/vibepollo-drm-integration-9.8.7.tar.gz",
-            "--cask-sha", archive_sha,
-            "--formula-template", str(formula),
-            "--cask-template", str(cask),
-            "--formula-output", str(pathlib.Path(temp) / "Formula/vibepollo-drm.rb"),
-            "--cask-output", str(pathlib.Path(temp) / "Casks/vibepollo.rb"),
-        ],
+        ["bash", str(root / "scripts/package-cask-payload.sh"), str(archive)],
         check=True,
     )
-    rendered_formula = (pathlib.Path(temp) / "Formula/vibepollo-drm.rb").read_text()
-    rendered_cask = (pathlib.Path(temp) / "Casks/vibepollo.rb").read_text()
-    if "vibepollo-source-9.8.7.tar.gz" not in rendered_formula or ("b" * 40) not in rendered_formula:
-        raise SystemExit("DRM Formula source URL or libvirtualdisplay commit was not rendered")
-    if 'version "9.8.7"' not in rendered_cask or archive_sha not in rendered_cask:
-        raise SystemExit("DRM Cask release metadata was not rendered")
-    if '#{version}/vibepollo-drm-integration-#{version}.tar.gz' not in rendered_cask:
-        raise SystemExit("DRM Cask URL must use Homebrew version interpolation")
+    local_archive = archive.read_bytes()
+    verify_payload_archive(local_archive, "locally packaged Cask payload")
+    archive_sha = hashlib.sha256(local_archive).hexdigest()
+
+# Verify the exact release asset that Homebrew will download. The package
+# workflow sets SOURCE_DATE_EPOCH from the upstream release timestamp; building
+# the archive here with a different timestamp would produce a different SHA
+# despite identical file contents.
+request = urllib.request.Request(
+    published_url,
+    headers={"User-Agent": "vibepollo-homebrew-package-check"},
+)
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        published_archive = response.read()
+except (urllib.error.URLError, TimeoutError) as error:
+    raise SystemExit(f"Could not download the published Cask payload {published_url}: {error}") from error
+
+published_sha = hashlib.sha256(published_archive).hexdigest()
+if published_sha != sha_match.group(1):
+    raise SystemExit(
+        f"Published Cask checksum mismatch: Cask={sha_match.group(1)}, "
+        f"release asset={published_sha}"
+    )
+verify_payload_archive(published_archive, "published Cask payload")
+
+subprocess.run(
+    [
+        "python3", str(root / "scripts/render-drm-packages.py"),
+        "--version", "9.8.7",
+        "--source-url", "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-9.8.7/vibepollo-source-9.8.7.tar.gz",
+        "--source-sha", "a" * 64,
+        "--libvirtualdisplay-commit", "b" * 40,
+        "--cask-url", "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-9.8.7/vibepollo-drm-integration-9.8.7.tar.gz",
+        "--cask-sha", archive_sha,
+        "--formula-template", str(formula),
+        "--cask-template", str(cask),
+        "--formula-output", str(pathlib.Path(temp) / "Formula/vibepollo-drm.rb"),
+        "--cask-output", str(pathlib.Path(temp) / "Casks/vibepollo.rb"),
+    ],
+    check=True,
+)
+rendered_formula = (pathlib.Path(temp) / "Formula/vibepollo-drm.rb").read_text()
+rendered_cask = (pathlib.Path(temp) / "Casks/vibepollo.rb").read_text()
+if "vibepollo-source-9.8.7.tar.gz" not in rendered_formula or ("b" * 40) not in rendered_formula:
+    raise SystemExit("DRM Formula source URL or libvirtualdisplay commit was not rendered")
+if 'version "9.8.7"' not in rendered_cask or archive_sha not in rendered_cask:
+    raise SystemExit("DRM Cask release metadata was not rendered")
+if '#{version}/vibepollo-drm-integration-#{version}.tar.gz' not in rendered_cask:
+    raise SystemExit("DRM Cask URL must use Homebrew version interpolation")
 
 formula_text = formula.read_text(encoding="utf-8")
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
@@ -92,4 +153,4 @@ for label, passed in checks:
     if not passed:
         raise SystemExit(f"Failed DRM lifecycle check: {label}")
 
-print("Vibeshine DRM Formula/Cask syntax, payload checksum, renderer and lifecycle checks passed.")
+print("Vibeshine DRM Formula/Cask syntax, payloads, published checksum, renderer and lifecycle checks passed.")
