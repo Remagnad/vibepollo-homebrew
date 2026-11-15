@@ -120,6 +120,11 @@ case "$action" in
     command -v tr >/dev/null 2>&1 || fail "tr is required to create a load token"
     if [[ -d "/sys/module/$MODULE_NAME" ]]; then
       check_loaded_identity
+      loaded_default_dev="$(cat "/sys/module/$MODULE_NAME/parameters/create_default_dev" 2>/dev/null || true)"
+      case "$loaded_default_dev" in
+        N|0|n|false) ;;
+        *) fail "the loaded module has create_default_dev enabled or unreadable; unload it and reload with this controller so the managed pool can create its own configfs device" ;;
+      esac
       if [[ "$STATE_MANAGED_LOAD" == "1" ]]; then
         check_managed_load_token
         printf '%s is already loaded and its controller token is verified\n' "$MODULE_NAME"
