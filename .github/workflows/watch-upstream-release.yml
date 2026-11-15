@@ -300,12 +300,12 @@ jobs:
             echo "::error::Source preparation did not provide a valid libvirtualdisplay submodule SHA."
             exit 1
           fi
-          printf '%s\\n' "$libvirtualdisplay_commit" > dist/libvirtualdisplay-commit.txt
+          printf '%s\n' "$libvirtualdisplay_commit" > dist/libvirtualdisplay-commit.txt
 
           cask_payload="$PWD/dist/vibepollo-drm-integration-${{ needs.check-upstream.outputs.version }}.tar.gz"
           bash scripts/package-cask-payload.sh "$cask_payload"
           cask_payload_sha="$(sha256sum "$cask_payload" | awk '{print $1}')"
-          printf '%s\\n' "$cask_payload_sha" > dist/cask-payload-sha256.txt
+          printf '%s\n' "$cask_payload_sha" > dist/cask-payload-sha256.txt
           echo "cask_payload=$cask_payload" >> "$GITHUB_OUTPUT"
           echo "cask_payload_sha=$cask_payload_sha" >> "$GITHUB_OUTPUT"
 
@@ -768,11 +768,11 @@ jobs:
           set -Eeuo pipefail
           brew tap-new --no-git Remagnad/vibepollo-homebrew
           tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
-          mkdir -p "$tap_path/Formula" "$tap_path/scripts"
+          mkdir -p "$tap_path/Formula" "$tap_path/Casks" "$tap_path/scripts"
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
-      - name: Verify build artifact and render Formula in isolated publish job
+      - name: Verify build artifact and render Formulae and Cask in isolated publish job
         env:
           VERSION: ${{ needs.check-upstream.outputs.version }}
           TAG: ${{ needs.check-upstream.outputs.tag }}
@@ -885,7 +885,7 @@ jobs:
             cd dist
             sha256sum "vibepollo-source-$VERSION.tar.gz" "$bottle_name" "$bottle_url_name" "vibepollo-drm-integration-$VERSION.tar.gz" > SHA256SUMS
           )
-      - name: Publish source bundle and bottle
+      - name: Publish source, bottle and Cask payload
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check-upstream.outputs.version }}
@@ -936,7 +936,7 @@ jobs:
           git fetch origin main
           git checkout -B main origin/main
 
-      - name: Audit and commit the final Formula
+      - name: Audit and commit the final Formulae and Cask
         env:
           VERSION: ${{ needs.check-upstream.outputs.version }}
         run: |
