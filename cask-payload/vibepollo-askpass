@@ -2,24 +2,36 @@
 set -Eeuo pipefail
 
 # sudo askpass protocol: print the password to stdout, never the prompt.
-# Read from the controlling terminal so this works without X11, Wayland,
-# Qt, GTK, or a desktop-specific authentication agent.
-tty_device="/dev/tty"
-if [[ ! -r "$tty_device" || ! -w "$tty_device" ]]; then
-  printf 'vibepollo askpass: no interactive terminal is available for password entry.\n' >&2
-  exit 1
-fi
-
+# Prefer the controlling terminal so interactive removal does not depend on
+# X11, Wayland, Qt, GTK, or a desktop-specific authentication agent.
 prompt="${1:-[sudo] password: }"
-printf '%s' "$prompt" > "$tty_device"
+tty_device="/dev/tty"
 
-password=""
-if ! IFS= read -r -s password < "$tty_device"; then
+if [[ -r "$tty_device" && -w "$tty_device" ]]; then
+  printf '%s' "$prompt" > "$tty_device"
+  password=""
+  if ! IFS= read -r -s password < "$tty_device"; then
+    printf '\n' > "$tty_device"
+    unset password
+    exit 1
+  fi
   printf '\n' > "$tty_device"
+  printf '%s\n' "$password"
   unset password
-  exit 1
+  exit 0
 fi
 
-printf '\n' > "$tty_device"
-printf '%s\n' "$password"
-unset password
+# If there is no terminal, preserve the user's original askpass choice rather
+# than breaking non-interactive environments that intentionally use a GUI.
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+original_askpass_file="$script_dir/vibepollo-original-askpass"
+original_askpass=""
+if [[ -r "$original_askpass_file" ]]; then
+  IFS= read -r original_askpass < "$original_askpass_file" || true
+fi
+if [[ -n "$original_askpass" && -x "$original_askpass" ]]; then
+  exec "$original_askpass" "$prompt"
+fi
+
+printf 'vibepollo askpass: no interactive terminal or usable original askpass is available.\n' >&2
+exit 1
