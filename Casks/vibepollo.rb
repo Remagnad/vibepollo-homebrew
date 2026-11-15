@@ -27,22 +27,12 @@ cask "vibepollo" do
   # Its env override is applied to the sudo process itself, so sudo -A uses
   # this terminal-backed helper instead of an inherited graphical askpass.
   uninstall_preflight_steps do
-    # stdout_path refuses to overwrite an existing file. A previous failed
-    # uninstall may have left this per-run capture behind, so remove only that
-    # known file from the staged Cask directory before capturing it again.
-    remove "vibepollo-original-askpass"
-
-    # Preserve the user's configured graphical askpass for non-interactive
-    # sessions; the wrapper uses it only when no controlling terminal exists.
-    run "/usr/bin/env",
-        args:        ["bash", "-c", 'printf "%s" "${SUDO_ASKPASS-}"'],
-        stdout_path: "vibepollo-original-askpass"
-
+    # Keep sudo authentication inside Homebrew while using the invoking
+    # terminal instead of an inherited graphical SUDO_ASKPASS program.
     run "uninstall.sh",
         sudo: true,
         env:  { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
-
   uninstall script: {
     executable: "#{staged_path}/uninstall-complete.sh",
   }
