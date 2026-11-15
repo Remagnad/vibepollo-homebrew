@@ -12,6 +12,8 @@ on:
       - "scripts/test-drm-packages.py"
       - "scripts/migrate-installed-cask-sudo.py"
       - ".github/workflows/build-cask-integration.yml"
+      - "upstream-version"
+      - "upstream-commit"
 
 permissions:
   contents: write
@@ -43,8 +45,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           version="$(tr -d '[:space:]' < upstream-version)"
-          tag="v$version"
+          upstream_commit="$(tr -d '[:space:]' < upstream-commit)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]
           release_json="$(gh api "repos/Remagnad/vibepollo-homebrew/releases/tags/vibepollo-$version")"
           published_at="$(jq -r '.published_at' <<<"$release_json")"
           [[ "$published_at" != "null" && -n "$published_at" ]]
@@ -55,10 +58,28 @@ jobs:
           fi
           {
             echo "version=$version"
+            echo "commit=$upstream_commit"
             echo "published_at=$published_at"
             echo "source_asset=$source_asset"
             echo "release_tag=vibepollo-$version"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the pinned libvirtualdisplay submodule commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_COMMIT: ${{ steps.release.outputs.commit }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tree_json="$(curl --fail --silent --show-error --location \\
+            --retry 5 --retry-all-errors \\
+            -H "Authorization: Bearer $GH_TOKEN" \\
+            -H "Accept: application/vnd.github+json" \\
+            -H "X-GitHub-Api-Version: 2022-11-28" \\
+            "https://api.github.com/repos/Nonary/Vibepollo/git/trees/$UPSTREAM_COMMIT?recursive=1")"
+          libvirtualdisplay_commit="$(jq -er '.tree[] | select(.path == "third-party/libvirtualdisplay" and .mode == "160000" and .type == "commit") | .sha' <<<"$tree_json")"
+          [[ "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "LIBVIRTUALDISPLAY_COMMIT=$libvirtualdisplay_commit" >> "$GITHUB_ENV"
 
       - name: Set reproducible archive timestamp
         env:
@@ -93,6 +114,7 @@ jobs:
           bash scripts/package-cask-payload.sh "$output" "dist/$SOURCE_ASSET"
           sha256sum "$output" | tee dist/cask-sha256.txt
           echo "CASK_SHA256=$(awk '{print $1}' dist/cask-sha256.txt)" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA256=$(sha256sum "dist/$SOURCE_ASSET" | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Verify Cask archive contents and deterministic checksum
         env:
@@ -139,43 +161,49 @@ jobs:
           gh release upload "$RELEASE_TAG" "$asset" "$manifest" \
             --repo "$GITHUB_REPOSITORY" --clobber
 
-      - name: Update only the Cask payload SHA in the tap
+      - name: Update the DRM Formula and Cask definitions in the tap
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          UPSTREAM_COMMIT: ${{ steps.release.outputs.commit }}
+          SOURCE_SHA256: ${{ env.SOURCE_SHA256 }}
+          LIBVIRTUALDISPLAY_COMMIT: ${{ env.LIBVIRTUALDISPLAY_COMMIT }}
           CASK_SHA256: ${{ env.CASK_SHA256 }}
         shell: bash
         run: |
           set -Eeuo pipefail
           git fetch origin main
           git checkout -B main origin/main
-          python3 - "$VERSION" "$CASK_SHA256" <<'PY'
-          import pathlib, re, sys
-          path = pathlib.Path("Casks/vibepollo.rb")
-          source = path.read_text(encoding="utf-8")
-          version, digest = sys.argv[1:]
-          current_version = re.findall(r'^  version "([^"]+)"$', source, re.M)
-          if current_version != [version]:
-              raise SystemExit(
-                  f"main now has Cask version {current_version!r}, not {version}; refusing to publish a stale payload"
-              )
-          updated, count = re.subn(
-              r'^  sha256 "[0-9a-f]{64}"$',
-              f'  sha256 "{digest}"',
-              source,
-              count=1,
-              flags=re.M,
-          )
-          if count != 1:
-              raise SystemExit("Expected exactly one Cask SHA-256 line")
-          path.write_text(updated, encoding="utf-8")
-          PY
+
+          latest_version="$(tr -d '[:space:]' < upstream-version)"
+          latest_commit="$(tr -d '[:space:]' < upstream-commit)"
+          if [[ "$latest_version" != "$VERSION" || "$latest_commit" != "$UPSTREAM_COMMIT" ]]; then
+            echo "::error::A newer upstream app release is already published; refusing to update DRM packages from a stale source."
+            exit 1
+          fi
+
+          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$VERSION"
+          mkdir -p "$RUNNER_TEMP/Formula" "$RUNNER_TEMP/Casks"
+          python3 scripts/render-drm-packages.py \\
+            --version "$VERSION" \\
+            --source-url "$release_root/vibepollo-source-$VERSION.tar.gz" \\
+            --source-sha "$SOURCE_SHA256" \\
+            --libvirtualdisplay-commit "$LIBVIRTUALDISPLAY_COMMIT" \\
+            --cask-url "$release_root/vibepollo-drm-integration-$VERSION.tar.gz" \\
+            --cask-sha "$CASK_SHA256" \\
+            --formula-template Formula/vibepollo-drm.rb \\
+            --cask-template Casks/vibepollo.rb \\
+            --formula-output "$RUNNER_TEMP/Formula/vibepollo-drm.rb" \\
+            --cask-output "$RUNNER_TEMP/Casks/vibepollo.rb"
+
+          cp "$RUNNER_TEMP/Formula/vibepollo-drm.rb" Formula/vibepollo-drm.rb
+          cp "$RUNNER_TEMP/Casks/vibepollo.rb" Casks/vibepollo.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/vibepollo.rb
+          git add Formula/vibepollo-drm.rb Casks/vibepollo.rb
           if git diff --cached --quiet; then
-            echo "Cask SHA-256 is already current."
+            echo "DRM Formula and Cask metadata are already current."
           else
-            git commit -m "Update Vibepollo Cask integration payload checksum"
+            git commit -m "Update Vibepollo DRM Formula and Cask to $VERSION"
             git push origin HEAD:main
           fi
 
