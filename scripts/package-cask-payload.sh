@@ -28,6 +28,7 @@ for file in vibeshine-vkms vibeshine-vkms-quiesce; do
 done
 cp "$payload_dir/install.sh" "$tmp/install.sh"
 cp "$payload_dir/uninstall.sh" "$tmp/uninstall.sh"
+cp "$payload_dir/vibepollo-askpass" "$tmp/vibepollo-askpass"
 # Guard the uninstall contract: a desktop-held DRM reference must defer the
 # unload safely, never force-remove a module that the compositor still uses.
 grep -Fq 'module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"' "$tmp/uninstall.sh"
@@ -36,13 +37,13 @@ cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
 done
-chmod 0755 "$tmp/install.sh" "$tmp/uninstall.sh" "$tmp/vibeshine-drmctl"
+chmod 0755 "$tmp/install.sh" "$tmp/uninstall.sh" "$tmp/vibepollo-askpass" "$tmp/vibeshine-drmctl"
 chmod 0644 "$tmp/vibeshine-vkms.service" "$tmp/vibeshine-vkms-control.socket" "$tmp/vibeshine-vkms-control@.service"
 
 mkdir -p -- "$(dirname -- "$output")"
 epoch="${SOURCE_DATE_EPOCH:-0}"
 tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner \
-    -C "$tmp" -cf - install.sh uninstall.sh vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce \
+    -C "$tmp" -cf - install.sh uninstall.sh vibepollo-askpass vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce \
     vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service | gzip -n -1 > "$output"
 sha256sum "$output"
 echo "Created Cask payload: $output"
