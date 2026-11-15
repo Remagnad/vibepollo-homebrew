@@ -135,7 +135,7 @@ case "$action" in
     done
     LOAD_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
     [[ "$LOAD_TOKEN" =~ ^[0-9a-f]{64}$ ]] || fail "could not generate a valid controller load token"
-    if ! insmod "$MODULE_FILE" "vibeshine_drmctl_token=$LOAD_TOKEN"; then
+    if ! insmod "$MODULE_FILE" "create_default_dev=0" "vibeshine_drmctl_token=$LOAD_TOKEN"; then
       printf 'The kernel refused the module. Inspect the kernel log with: journalctl -k -b\n' >&2
       printf 'No Secure Boot key enrollment is attempted by this command.\n' >&2
       exit 1
