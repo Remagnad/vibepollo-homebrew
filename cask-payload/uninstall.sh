@@ -107,7 +107,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
   module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
   if [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); then
-    log "DRM module is held by the running desktop (refcount $module_refcount); leaving it loaded until reboot"
+    log "DRM module is held by the running desktop (refcount $module_refcount); Leaving it loaded until reboot"
   else
     log "unloading the Cask-managed DRM module"
     rmmod_output=""
