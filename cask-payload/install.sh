@@ -85,9 +85,12 @@ MODULE_NAME="$(modinfo -F name "$MODULE_FILE")"
 MODULE_VERSION="$(modinfo -F version "$MODULE_FILE")"
 MODULE_VERMAGIC="$(modinfo -F vermagic "$MODULE_FILE" | awk '{print $1}')"
 MODULE_SRCVERSION="$(modinfo -F srcversion "$MODULE_FILE" 2>/dev/null || true)"
+MODULE_PARAMETERS="$(modinfo -F parm "$MODULE_FILE")"
 [[ "$MODULE_NAME" == "vibeshine_drm" ]] || fail "Formula artifact is not vibeshine_drm.ko"
 [[ "$MODULE_VERSION" == "$EXPECTED_VERSION" ]] || fail "module version does not match Formula metadata"
 [[ "$MODULE_VERMAGIC" == "$KERNEL_RELEASE" ]] || fail "module vermagic does not match running kernel"
+[[ "$MODULE_PARAMETERS" == *"vibeshine_drmctl_token:"* ]] ||
+  fail "Formula module lacks the controller load-identity parameter; rebuild the Formula"
 
 for path in "$MODULES_DIR" "$BIN_DIR" "$STATE_DIR"; do
   if [[ -e "$path" || -L "$path" ]]; then require_root_directory "$path"; fi
@@ -95,16 +98,26 @@ done
 if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then require_root_file "$STATE_FILE"; fi
 
 MANAGED_LOAD=0
+LOAD_TOKEN=""
 if [[ -d /sys/module/vibeshine_drm ]]; then
   LOADED_VERSION="$(cat /sys/module/vibeshine_drm/version 2>/dev/null || true)"
   LOADED_SRCVERSION="$(cat /sys/module/vibeshine_drm/srcversion 2>/dev/null || true)"
+  LOADED_TOKEN="$(cat /sys/module/vibeshine_drm/parameters/vibeshine_drmctl_token 2>/dev/null || true)"
   [[ "$LOADED_VERSION" == "$EXPECTED_VERSION" ]] || fail "a different vibeshine_drm build is loaded; unload it before installing or upgrading"
   if [[ -n "$MODULE_SRCVERSION" && -n "$LOADED_SRCVERSION" && "$MODULE_SRCVERSION" != "$LOADED_SRCVERSION" ]]; then
     fail "loaded vibeshine_drm source identity differs from Formula artifact"
   fi
+  PRIOR_LOAD_TOKEN="$(state_value load_token)"
   if [[ "$(state_value kernel)" == "$KERNEL_RELEASE" &&
         "$(state_value module_version)" == "$EXPECTED_VERSION" &&
-        "$(state_value managed_load)" == "1" ]]; then MANAGED_LOAD=1; fi
+        "$(state_value managed_load)" == "1" &&
+        "$PRIOR_LOAD_TOKEN" =~ ^[0-9a-f]{64}$ &&
+        "$LOADED_TOKEN" == "$PRIOR_LOAD_TOKEN" ]]; then
+    MANAGED_LOAD=1
+    LOAD_TOKEN="$PRIOR_LOAD_TOKEN"
+  elif [[ "$(state_value managed_load)" == "1" ]]; then
+    printf 'Note: the loaded module no longer carries the recorded controller token; it will not be considered controller-managed.\n' >&2
+  fi
 fi
 
 CONFIG_FILE="$KERNEL_BUILD_DIR/.config"
@@ -141,8 +154,8 @@ mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
 mv -f -- "$BIN_DIR/vibeshine-drmctl.new" "$BIN_DIR/vibeshine-drmctl"
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
-printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\n' \
-  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" > "$STATE_TMP"
+printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\n' \
+  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"

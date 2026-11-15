@@ -59,6 +59,20 @@ class VibepolloDrm < Formula
     module_version = "#{version}+#{LIBVIRTUALDISPLAY_COMMIT[0, 12]}"
     module_build = buildpath/"vibeshine-drm-build"
     cp_r module_source, module_build
+
+    driver_source = module_build/"vkms_drv.c"
+    driver_marker = "static struct vkms_config *default_config;\n"
+    driver_content = driver_source.read
+    odie "Pinned Vibeshine DRM source no longer has the expected driver marker" unless
+      driver_content.scan(driver_marker).length == 1
+    load_token_parameter = <<~C
+      /* Set only by vibeshine-drmctl to identify its own module load. */
+      static char vibeshine_drmctl_token[65];
+      module_param_string(vibeshine_drmctl_token, vibeshine_drmctl_token,
+                          sizeof(vibeshine_drmctl_token), 0444);
+      MODULE_PARM_DESC(vibeshine_drmctl_token, "Vibeshine DRM controller load token");
+    C
+    driver_source.write(driver_content.sub(driver_marker, "#{load_token_parameter}\n#{driver_marker}"))
     (module_build/"vibeshine_drm_version.h").write(
       "#define VIBESHINE_DRM_VERSION \"#{module_version}\"\n",
     )

@@ -43,6 +43,10 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   if [[ -n "$expected_srcversion" && -n "$loaded_srcversion" && "$expected_srcversion" != "$loaded_srcversion" ]]; then
     fail "loaded module source identity does not match this Cask"
   fi
+  expected_token="$(state_value load_token)"
+  loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+  [[ "$expected_token" =~ ^[0-9a-f]{64}$ && "$loaded_token" == "$expected_token" ]] ||
+    fail "the loaded module does not carry this Cask helper's load token; refusing to unload an external module"
   command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
   rmmod "$MODULE_NAME" || fail "module is busy; close virtual displays, unload it, then retry"
 fi
