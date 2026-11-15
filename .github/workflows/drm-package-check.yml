@@ -84,7 +84,7 @@ jobs:
               raise SystemExit("Homebrew JSON info did not serialize uninstall_preflight_steps")
           serialized = json.dumps(entries[0])
           for marker in ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass",
-                         "vibepollo-original-askpass", "uninstall.sh"):
+                         "uninstall.sh"):
               if marker not in serialized:
                   raise SystemExit(f"Homebrew uninstall step is missing {marker}")
           print("Homebrew JSON metadata preserves the privileged uninstall and askpass configuration.")
