@@ -280,7 +280,18 @@ def main() -> int:
     if not cask_source.is_file() or cask_source.is_symlink():
         raise RuntimeError(f"Current Cask definition is missing or unsafe: {cask_source}")
     source_text = cask_source.read_text(encoding="utf-8")
-    version_match = re.search(r'^  version "([0-9]+\.[0-9]+\.[0-9]+)"
+    version_match = re.search(r'^  version "([0-9]+\.[0-9]+\.[0-9]+)"$', source_text, re.MULTILINE)
+    url_match = re.search(r'^  url "([^"]+)"$', source_text, re.MULTILINE)
+    sha_match = re.search(r'^  sha256 "([0-9a-f]{64})"$', source_text, re.MULTILINE)
+    if not version_match or not url_match or not sha_match:
+        raise RuntimeError("Current Cask version, payload URL or SHA-256 is invalid")
+    version = version_match.group(1)
+    payload_url = url_match.group(1).replace("#{version}", version)
+    if not payload_url.startswith("https://github.com/Remagnad/vibepollo-homebrew/releases/download/"):
+        raise RuntimeError("Current Cask payload URL is not the expected HTTPS GitHub release asset")
+    if "uninstall_preflight_steps do" not in source_text or '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' not in source_text:
+        raise RuntimeError("Current Cask is missing the Homebrew-native terminal askpass uninstall step")
+
     brew = shutil.which("brew")
     if not brew:
         raise RuntimeError("Homebrew was not found in PATH")
