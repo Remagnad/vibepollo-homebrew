@@ -1,6 +1,6 @@
 cask "vibepollo" do
   version "2.0.6"
-  sha256 "3396b441d4fb90e316b0a9d614c7b47525907832c18bc1882d74a8309eb0d40e"
+  sha256 "b33f8e16bf20b55cd6c04cdfab40a39de887149ca96f80c0c03205d6bcce1a3e"
 
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz"
   name "Vibepollo"
