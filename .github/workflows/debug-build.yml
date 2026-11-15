@@ -342,6 +342,7 @@ jobs:
             -DSUNSHINE_ENABLE_CUDA=ON \
             -DSUNSHINE_REQUIRE_CUDA_PASCAL=ON \
             -DCMAKE_CUDA_COMPILER:PATH="$cuda_prefix/bin/nvcc" \
+            -DCMAKE_CUDA_ARCHITECTURES=61 \
             -DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH="$cuda_prefix" \
             -DCUDAToolkit_ROOT:PATH="$cuda_prefix" \
             -DCMAKE_CUDA_HOST_COMPILER="$gcc_bin/g++-14" \

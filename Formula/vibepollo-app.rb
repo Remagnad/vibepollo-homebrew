@@ -123,6 +123,45 @@ class VibepolloApp < Formula
         odie "The pinned FFmpeg resource is missing its include directory"
       end
 
+      # CMake 4.5 must not guess a default CUDA architecture on a headless CI
+      # runner. Bootstrap compiler identification with Pascal; upstream's
+      # cuda_architectures.cmake resets this variable after enable_language()
+      # and supplies the complete CUDA 12.9 architecture list for the real build.
+      cuda_preflight_dir = HOMEBREW_CACHE/"vibepollo-cuda-cmake-preflight"
+      cuda_preflight_dir.mkpath
+      (cuda_preflight_dir/"CMakeLists.txt").write(<<~CMAKE)
+        cmake_minimum_required(VERSION 3.25)
+        project(VibepolloCudaToolchainProbe LANGUAGES CXX CUDA)
+        add_executable(cuda-toolchain-probe probe.cu)
+      CMAKE
+      (cuda_preflight_dir/"probe.cu").write(<<~CUDA)
+        #include <cuda_runtime.h>
+        __global__ void probe_kernel(int *value) {
+          if (threadIdx.x == 0) *value = 61;
+        }
+        int main() { return 0; }
+      CUDA
+      cuda_preflight_build = cuda_preflight_dir/"build"
+      begin
+        system "cmake", "-S", cuda_preflight_dir, "-B", cuda_preflight_build, "-G", "Ninja",
+               "-DCMAKE_CXX_COMPILER=#{cxx_compiler}",
+               "-DCMAKE_CUDA_COMPILER=#{cuda_nvcc}",
+               "-DCMAKE_CUDA_HOST_COMPILER=#{cxx_compiler}",
+               "-DCMAKE_CUDA_TOOLKIT_ROOT_DIR=#{cuda_prefix}",
+               "-DCUDAToolkit_ROOT=#{cuda_prefix}",
+               "-DCMAKE_CUDA_ARCHITECTURES=61"
+        system "cmake", "--build", cuda_preflight_build, "--parallel", "2"
+      rescue StandardError
+        configure_log = cuda_preflight_build/"CMakeFiles/CMakeConfigureLog.yaml"
+        if configure_log.file?
+          puts "CUDA CMake preflight configure log (last 160 lines):"
+          puts configure_log.read.lines.last(160).join
+        end
+        raise
+      ensure
+        cuda_preflight_dir.rmtree if cuda_preflight_dir.directory?
+      end
+
       cmake_args = std_cmake_args + [
         "-G", "Ninja",
         "-DCMAKE_C_COMPILER=#{c_compiler}",
@@ -147,6 +186,9 @@ class VibepolloApp < Formula
         "-DSUNSHINE_ENABLE_CUDA=ON",
         "-DSUNSHINE_REQUIRE_CUDA_PASCAL=ON",
         "-DCMAKE_CUDA_COMPILER:PATH=#{cuda_nvcc}",
+        # Bootstrap the compiler-ID check on headless runners; the upstream
+        # CUDA architecture policy replaces this after enable_language(CUDA).
+        "-DCMAKE_CUDA_ARCHITECTURES=61",
         "-DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH=#{cuda_prefix}",
         "-DCUDAToolkit_ROOT:PATH=#{cuda_prefix}",
         "-DCMAKE_CUDA_HOST_COMPILER=#{cxx_compiler}",
@@ -198,7 +240,16 @@ class VibepolloApp < Formula
         ]
       end
 
-      system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
+      begin
+        system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
+      rescue StandardError
+        configure_log = buildpath/"build/CMakeFiles/CMakeConfigureLog.yaml"
+        if configure_log.file?
+          puts "Vibepollo CMake configure log (last 200 lines):"
+          puts configure_log.read.lines.last(200).join
+        end
+        raise
+      end
       system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
 
