@@ -1,6 +1,6 @@
 cask "vibepollo" do
   version "2.0.6"
-  sha256 "4b28eefdf2800d84326edcfe4c57f9be1822d88d814a029b61b77b2f3ca74d19"
+  sha256 "683c396de8674653b004a9eb677e05de2700ecdfaf23dfa8fd6dc18fd2c0476f"
 
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz"
   name "Vibepollo"
@@ -21,12 +21,10 @@ cask "vibepollo" do
       "#{HOMEBREW_PREFIX}/opt/vibepollo-app",
       staged_path,
     ],
-    sudo:     false,
   }
 
   uninstall script: {
     executable: "#{staged_path}/uninstall.sh",
-    sudo:      false,
   }
 
   caveats <<~EOS
