@@ -54,6 +54,7 @@ jobs:
           set -Eeuo pipefail
           tap_name="Remagnad/vibepollo-homebrew"
           brew tap-new --no-git "$tap_name"
+          brew trust "$tap_name"
           tap_path="$(brew --repo "$tap_name")"
           mkdir -p "$tap_path/Formula" "$tap_path/Casks"
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
