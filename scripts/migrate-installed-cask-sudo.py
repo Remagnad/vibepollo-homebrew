@@ -180,8 +180,13 @@ def download_uninstaller(url: str, expected_sha256: str) -> bytes:
             if stream is None:
                 raise RuntimeError("Could not read uninstall.sh from the verified payload")
             script = stream.read()
-    if b'exec sudo -- "$0" "$@"' not in script:
-        raise RuntimeError("Published uninstaller does not contain the terminal sudo migration")
+    required_markers = (
+        b"sudo -v -p",
+        b"</dev/tty",
+        b'exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"',
+    )
+    if any(marker not in script for marker in required_markers):
+        raise RuntimeError("Published uninstaller does not contain the verified terminal sudo migration")
     return script
 
 
