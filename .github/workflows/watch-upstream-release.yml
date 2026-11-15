@@ -497,8 +497,12 @@ jobs:
           # Only unlink outdated formulae in the Vibepollo dependency closure;
           # leave unrelated cached tools linked and available to later steps.
           mapfile -t app_dependencies < <(
-            brew deps --include-build --include-optional --include-test \\
-              Remagnad/vibepollo-homebrew/vibepollo-app | sort -u
+            brew deps --include-build --include-optional --include-test \
+              Remagnad/vibepollo-homebrew/vibepollo-app |
+              sed 's/^[^:]*: //' |
+              tr ' ' '\n' |
+              sed '/^$/d' |
+              sort -u
           )
           mapfile -t outdated_formulae < <(
             brew outdated --formula --json=v2 | jq -r '.formulae[].name'
