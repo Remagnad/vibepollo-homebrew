@@ -37,7 +37,7 @@ class VibepolloDrm < Formula
       Matching kernel development files were not found for #{kernel_release}.
       Install the headers/devel package for the running kernel, then reinstall
       this formula. Expected a kernel build tree containing Makefile,
-      include/generated/autoconf.h and scripts/sign-file.
+      include/generated/autoconf.h.
     EOS
     kernel_build = kernel_build_link.realpath
 
