@@ -140,7 +140,7 @@ checks = [
     ("no Secure Boot enrollment", "mokutil --import" not in install_text and "AUTO_ENROLL" not in install_text),
     ("controller ownership marker", "write_managed_load 1" in controller_text),
     ("module token parameter injected before Kbuild", "module_param_string(vibeshine_drmctl_token" in formula_text),
-    ("existing Kbuild source is edited with Homebrew inreplace", "inreplace driver_source do |source|" in formula_text and "driver_source.write(" not in formula_text),
+    ("existing Kbuild source is edited with Homebrew inreplace", "inreplace driver_source do |s|" in formula_text and "driver_source.write(" not in formula_text),
     ("controller generates a unique 256-bit token", "od -An -N32 -tx1 /dev/urandom" in controller_text),
     ("controller passes token to insmod", '"vibeshine_drmctl_token=$LOAD_TOKEN"' in controller_text),
     ("controller validates the live token before unload", "check_managed_load_token" in controller_text),
