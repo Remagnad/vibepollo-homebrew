@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Use terminal sudo instead of Homebrew's graphical sudo -A/askpass path.
+log() { printf 'vibepollo Cask uninstaller: %s\n' "$*" >&2; }
+fail() { printf 'vibepollo Cask uninstaller: error: %s\n' "$*" >&2; exit 1; }
+
+# Homebrew runs Cask uninstall scripts without a TTY-aware sudo prompt.
+# Authenticate explicitly on the controlling terminal, ignoring graphical
+# askpass settings, then re-exec non-interactively with the cached ticket.
 if [[ "$EUID" -ne 0 ]]; then
-  command -v sudo >/dev/null 2>&1 || {
-    printf 'vibepollo Cask uninstaller: error: sudo is required for privileged removal.\n' >&2
-    exit 1
-  }
-  exec sudo -- "$0" "$@"
+  command -v sudo >/dev/null 2>&1 || fail "sudo is required for privileged removal"
+  [[ -r /dev/tty ]] || fail "no controlling terminal is available; run brew uninstall from a terminal"
+  log "requesting administrator authentication in this terminal"
+  if ! env -u SUDO_ASKPASS sudo -v -p 'Vibepollo Cask removal — password: ' </dev/tty; then
+    fail "administrator authentication failed"
+  fi
+  exec env -u SUDO_ASKPASS sudo -n -- "$0" "$@"
 fi
+
 DRM_ROOT="/var/lib/vibepollo/drm"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 MODULE_NAME="vibeshine_drm"
-fail() { printf 'vibepollo Cask uninstaller: error: %s\n' "$*" >&2; exit 1; }
+
 require_root_directory() {
   local path="$1" mode
   [[ -d "$path" && ! -L "$path" ]] || fail "refusing unsafe directory path: $path"
@@ -26,11 +34,34 @@ state_value() {
   [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || return 0
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$STATE_FILE"
 }
+systemctl_bounded() {
+  local limit="$1" description="$2" rc=0
+  shift 2
+  log "$description"
+  timeout --foreground --kill-after=5s "${limit}s" systemctl "$@" || rc=$?
+  if (( rc == 124 || rc == 137 )); then
+    fail "timed out after ${limit}s while $description; no integration files were removed"
+  elif (( rc != 0 )); then
+    fail "command failed while $description (exit $rc); no integration files were removed"
+  fi
+}
+unit_is_active() {
+  local unit="$1" output rc=0
+  output="$(timeout --foreground --kill-after=5s 10s systemctl is-active "$unit" 2>&1)" || rc=$?
+  case "$rc:$output" in
+    0:active|0:activating|0:reloading|0:deactivating) return 0 ;;
+    3:inactive|3:failed|3:deactivating|4:unknown) return 1 ;;
+    124:*|137:*) fail "systemd did not respond while checking $unit; no integration files were removed" ;;
+    *) fail "could not safely determine the state of $unit (exit $rc): $output" ;;
+  esac
+}
+
 [[ "$EUID" -eq 0 ]] || fail "this uninstaller must run with root privileges"
-command -v stat >/dev/null 2>&1 || fail "GNU stat from coreutils is required"
-command -v awk >/dev/null 2>&1 || fail "awk is required"
+for command_name in stat awk sha256sum timeout; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
+done
 if [[ ! -e "$DRM_ROOT" && ! -L "$DRM_ROOT" ]]; then
-  printf 'Vibeshine DRM integration is already absent.\n'
+  log "integration is already absent"
   exit 0
 fi
 for parent in /var /var/lib /var/lib/vibepollo "$DRM_ROOT"; do require_root_directory "$parent"; done
@@ -41,15 +72,14 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
   state_mode="$(stat -c '%a' "$STATE_FILE")"
   (( (8#$state_mode & 0022) == 0 )) || fail "installation state must not be writable by group or others"
 fi
-command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 
 # Stop the optional pool before touching its helpers or the DRM module.
 if command -v systemctl >/dev/null 2>&1; then
-  if systemctl is-active --quiet vibeshine-vkms.service; then
-    systemctl stop vibeshine-vkms.service || fail "could not stop vibeshine-vkms.service; close active virtual displays and retry"
+  if unit_is_active vibeshine-vkms.service; then
+    systemctl_bounded 45 "stopping vibeshine-vkms.service" stop vibeshine-vkms.service
   fi
-  if systemctl is-active --quiet vibeshine-vkms-control.socket; then
-    systemctl stop vibeshine-vkms-control.socket || fail "could not stop the Vibeshine control socket"
+  if unit_is_active vibeshine-vkms-control.socket; then
+    systemctl_bounded 20 "stopping vibeshine-vkms-control.socket" stop vibeshine-vkms-control.socket
   fi
 fi
 
@@ -59,7 +89,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   state_mode="$(stat -c '%a' "$STATE_FILE")"
   (( (8#$state_mode & 0022) == 0 )) || fail "installation state must not be writable by group or others"
   [[ "$(state_value managed_load)" == "1" ]] ||
-    fail "module is loaded but was not loaded by vibeshine-drmctl; unload it manually and retry"
+    fail "module is loaded but was not loaded by vibeshine-drmctl; refusing to unload an external module"
   expected_version="$(state_value module_version)"
   loaded_version="$(cat "/sys/module/$MODULE_NAME/version" 2>/dev/null || true)"
   [[ -n "$expected_version" && "$loaded_version" == "$expected_version" ]] ||
@@ -73,20 +103,25 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
   [[ "$expected_token" =~ ^[0-9a-f]{64}$ && "$loaded_token" == "$expected_token" ]] ||
     fail "the loaded module does not carry this Cask helper's load token; refusing to unload an external module"
+
   command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
-  # A compositor may keep DRM file descriptors open after the configfs pool
-  # has been stopped. In that case the kernel correctly pins the module.
-  # Do not force-unload it or abort the Cask removal: unlinking the installed
-  # module file is safe, and the in-memory module will disappear at reboot.
-  # Only defer when the kernel reports a positive reference count; any other
-  # rmmod failure remains fatal.
-  rmmod_output=""
-  if ! rmmod_output="$(rmmod "$MODULE_NAME" 2>&1)"; then
-    module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
-    if [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); then
-      printf 'Vibeshine DRM module is still referenced by the running desktop (refcount %s). Leaving it loaded until reboot; removing the Cask files safely.\\n' "$module_refcount"
-    else
-      fail "could not unload the managed module: $rmmod_output"
+  module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
+  if [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); then
+    log "DRM module is held by the running desktop (refcount $module_refcount); leaving it loaded until reboot"
+  else
+    log "unloading the Cask-managed DRM module"
+    rmmod_output=""
+    rmmod_rc=0
+    timeout --foreground --kill-after=5s 10s rmmod "$MODULE_NAME" > /dev/null 2> >(rmmod_output_file="$(mktemp)"; cat > "$rmmod_output_file"; printf '%s' "$rmmod_output_file" >&3) 3>&1 || rmmod_rc=$?
+    if (( rmmod_rc != 0 )); then
+      module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
+      if { [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); }; then
+        log "DRM module became busy (refcount $module_refcount); leaving it loaded until reboot"
+      elif (( rmmod_rc == 124 || rmmod_rc == 137 )); then
+        fail "rmmod did not finish within 10s; the module and integration files were left in place"
+      else
+        fail "could not unload the managed module (exit $rmmod_rc); the integration files were left in place"
+      fi
     fi
   fi
 fi
@@ -102,8 +137,9 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
   [[ "$actual_unit_sha" == "$expected_unit_sha" ]] || fail "$unit was modified outside this Cask; leaving it untouched"
   rm -f -- "$unit_path"
 done
-if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi
-
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl_bounded 30 "reloading systemd after unit removal" daemon-reload
+fi
 
 MODULES_DIR="$DRM_ROOT/modules"
 if [[ -e "$MODULES_DIR" || -L "$MODULES_DIR" ]]; then
@@ -129,7 +165,7 @@ for directory in bin state; do
   require_root_directory "$path"
   case "$directory" in
     bin)
-for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+      for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
         helper="$path/$helper_name"
         [[ -e "$helper" || -L "$helper" ]] || continue
         [[ -f "$helper" && ! -L "$helper" ]] || fail "refusing unsafe helper path: $helper"
@@ -150,5 +186,5 @@ for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibesh
   esac
   rmdir "$path" 2>/dev/null || true
 done
-printf 'Removed Vibeshine DRM integration files.\n'
-printf 'Preserved signing keys in %s/keys.\n' "$DRM_ROOT"
+log "removed Vibeshine DRM integration files"
+log "preserved signing keys in $DRM_ROOT/keys"
