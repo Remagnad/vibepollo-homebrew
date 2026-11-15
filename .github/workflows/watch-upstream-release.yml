@@ -14,7 +14,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/watch-upstream-release.yml"
-      - "scripts/**"
+      - "scripts/prepare-source.sh"
+      - "scripts/render-formula.py"
+      - "scripts/install-cuda-components.sh"
+      - "scripts/vibepollo-launcher.sh"
+      - "scripts/prune-actions-caches.sh"
       - "Formula/**"
 
 permissions:
