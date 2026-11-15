@@ -162,7 +162,10 @@ cask "vibepollo" do
     [[ -d "$KERNEL_BUILD_DIR" && ! -L "$KERNEL_BUILD_DIR" ]] ||
       fail "the kernel build directory recorded by the Formula is no longer available"
 
-    [[ -d "$KEY_DIR" && ! -L "$KEY_DIR" ]] ||
+    for parent in /var /var/lib /var/lib/vibepollo "$DRM_ROOT" "$KEY_DIR"; do
+      [[ ! -L "$parent" ]] || fail "refusing to use a symbolic-link directory: $parent"
+    done
+    [[ -d "$KEY_DIR" ]] ||
       fail "copy your existing Secure Boot key pair to $KEY_DIR before installing this Cask"
     [[ -f "$PRIVATE_KEY" && ! -L "$PRIVATE_KEY" ]] ||
       fail "the private key is missing: $PRIVATE_KEY"
@@ -250,8 +253,9 @@ cask "vibepollo" do
     install -o root -g root -m 0644 "$TMP_DIR/vibeshine_drm.ko" "$DEST_DIR/vibeshine_drm.ko.new"
     mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
     install -o root -g root -m 0755 "$STAGED_HELPER" "$DRM_ROOT/bin/vibeshine-drmctl"
-    printf 'kernel=%s\\nversion=%s\\nlibvirtualdisplay=%s\\n' "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$SOURCE_COMMIT" |
-      install -o root -g root -m 0644 /dev/stdin "$DRM_ROOT/state/vibeshine-drm-install"
+    printf 'kernel=%s\\nversion=%s\\nlibvirtualdisplay=%s\\n' "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$SOURCE_COMMIT" > "$DRM_ROOT/state/vibeshine-drm-install"
+    chown root:root "$DRM_ROOT/state/vibeshine-drm-install"
+    chmod 0644 "$DRM_ROOT/state/vibeshine-drm-install"
 
     if command -v mokutil >/dev/null 2>&1; then
       if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
