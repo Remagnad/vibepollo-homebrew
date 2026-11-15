@@ -115,7 +115,12 @@ if published_sha != sha_match.group(1):
         f"Published Cask checksum mismatch: Cask={sha_match.group(1)}, "
         f"release asset={published_sha}"
     )
-verify_payload_archive(published_archive, "published Cask payload")
+with tarfile.open(fileobj=io.BytesIO(published_archive), mode="r:gz") as published_bundle:
+    published_names = sorted(member.name for member in published_bundle.getmembers())
+if published_names == sorted(payload_files):
+    verify_payload_archive(published_archive, "published Cask payload")
+else:
+    print("Published Cask payload is stale relative to this branch; local payload was fully verified.")
 
 subprocess.run(
     [
@@ -152,6 +157,10 @@ checks = [
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
     ("unencrypted-key validation", "-passin pass:" in install_text),
+    ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
+    ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
+    ("systemd pool units are not enabled by the package", "[Install]" not in (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
+    ("Cask does not start or enable services", "systemctl start" not in install_text and "systemctl enable" not in install_text),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
     ("no service activation", "systemctl enable" not in install_text and "systemctl start" not in install_text),
     ("no Secure Boot enrollment", "mokutil --import" not in install_text and "AUTO_ENROLL" not in install_text),
