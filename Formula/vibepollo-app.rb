@@ -7,19 +7,19 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "bf8d6ddd43f5a93434b38decdf7b066c306546849657490ecccf7560311c374c"
+    sha256 x86_64_linux: "64e116279ef30278ea74cb6167b85e47b42f6dce72de8b8349216366642ae4bc"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
   # linked against Homebrew libraries; GCC's shared C++ runtime is a dependency.
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
+  depends_on "mold" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
   # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
   # external tap out of depends_on lets users pour the published bottle directly.
-  depends_on "mold" => :build
   depends_on "node" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
@@ -28,26 +28,24 @@ class VibepolloApp < Formula
   depends_on "at-spi2-core"
   # The Linux mDNS publisher loads libavahi-client dynamically at runtime.
   depends_on "avahi"
+  depends_on "boost"
   depends_on "cairo"
+  depends_on "curl"
+  depends_on "gcc@14"
   depends_on "gdk-pixbuf"
+  depends_on "glib"
   depends_on "gtk+3"
   depends_on "harfbuzz"
   depends_on "jpeg-turbo"
-  depends_on "libdbusmenu"
-  depends_on "libice"
-  depends_on "libpng"
-  depends_on "libsm"
-  depends_on "pango"
-  depends_on "webp"
-  depends_on "boost"
-  depends_on "curl"
-  depends_on "gcc@14"
-  depends_on "glib"
   depends_on "libayatana-appindicator"
   depends_on "libcap"
+  depends_on "libdbusmenu"
   depends_on "libdrm"
   depends_on "libevdev"
+  depends_on "libice"
   depends_on "libnotify"
+  depends_on "libpng"
+  depends_on "libsm"
   depends_on "libva"
   depends_on "libx11"
   depends_on "libxext"
@@ -57,11 +55,13 @@ class VibepolloApp < Formula
   depends_on "numactl"
   depends_on "openssl@3"
   depends_on "opus"
+  depends_on "pango"
   depends_on "pipewire"
   depends_on "pulseaudio"
   depends_on "sqlite"
   depends_on "vulkan-loader"
   depends_on "wayland"
+  depends_on "webp"
   depends_on "zlib-ng-compat"
 
   # These values are generated from the exact GitHub release tag and commit.
@@ -153,7 +153,7 @@ class VibepolloApp < Formula
                "-DCUDAToolkit_ROOT=#{cuda_prefix}",
                "-DCMAKE_CUDA_ARCHITECTURES=61"
         system "cmake", "--build", cuda_preflight_build, "--parallel", "2"
-      rescue StandardError
+      rescue
         configure_log = cuda_preflight_build/"CMakeFiles/CMakeConfigureLog.yaml"
         error_log = cuda_preflight_build/"CMakeFiles/CMakeError.log"
         [configure_log, error_log].each do |log|
@@ -247,13 +247,13 @@ class VibepolloApp < Formula
         ccache_launcher = [which("cmake"), "-E", "env", "CCACHE_CONFIGPATH=#{ccache_config}", ccache].join(";")
         cmake_args += [
           "-DCMAKE_C_COMPILER_LAUNCHER=#{ccache_launcher}",
-          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}"
+          "-DCMAKE_CXX_COMPILER_LAUNCHER=#{ccache_launcher}",
         ]
       end
 
       begin
         system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
-      rescue StandardError
+      rescue
         configure_log = buildpath/"build/CMakeFiles/CMakeConfigureLog.yaml"
         if configure_log.file?
           puts "Vibepollo CMake configure log (last 200 lines):"
@@ -272,7 +272,7 @@ class VibepolloApp < Formula
       odie "Versioned Vibepollo executable was not installed by CMake" unless versioned_binary.executable?
       # Match upstream release validation: the bottle must contain native Pascal sm_61 code.
       cuda_elfs = Utils.safe_popen_read(cuda_cuobjdump, "--list-elf", versioned_binary)
-      odie "CUDA build is missing Pascal sm_61 device code" unless cuda_elfs.match?(/sm_61\./)
+      odie "CUDA build is missing Pascal sm_61 device code" unless cuda_elfs.include?("sm_61.")
       vibepollo_link = bin/"vibepollo"
       odie "Expected CMake to install bin/vibepollo as a symlink" unless vibepollo_link.symlink?
       libexec.mkpath
@@ -283,7 +283,6 @@ class VibepolloApp < Formula
       odie "Vibepollo Homebrew launcher script is missing: #{launcher_script}" unless launcher_script.file?
       cp launcher_script, bin/"vibepollo"
       chmod 0755, bin/"vibepollo"
-
     end
   end
 
@@ -378,7 +377,7 @@ class VibepolloApp < Formula
       "--wrapper-test
 ",
       "argument with spaces
-"
+",
     ].join
     assert_equal expected_default_output, default_env_output
 
@@ -399,7 +398,7 @@ class VibepolloApp < Formula
       "unset
 ",
       "--wrapper-test
-"
+",
     ].join
     assert_equal expected_custom_output, custom_env_output
 
@@ -422,7 +421,7 @@ class VibepolloApp < Formula
     fixture_source = testpath/"host-graphics-fixture.c"
     fixture_source.write("int vibepollo_host_graphics_fixture(void) { return 0; }
 ")
-    fixture_compiler = Formula["gcc@14"].opt_bin/"gcc-14"
+    fixture_compiler = formula_opt_bin("gcc@14")/"gcc-14"
     graphics_sonames.each do |soname|
       system fixture_compiler, "-shared", "-fPIC", "-Wl,-soname,#{soname}",
              fixture_source, "-o", graphics_lib_dir/soname
