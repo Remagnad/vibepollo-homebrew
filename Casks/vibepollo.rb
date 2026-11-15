@@ -21,10 +21,12 @@ cask "vibepollo" do
       "#{HOMEBREW_PREFIX}/opt/vibepollo-app",
       staged_path,
     ],
+    sudo:       false,
   }
 
   uninstall script: {
     executable: "#{staged_path}/uninstall.sh",
+    sudo:       false,
   }
 
   caveats <<~EOS
