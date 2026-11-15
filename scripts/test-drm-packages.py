@@ -182,7 +182,7 @@ checks = [
     ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
     ("Cask does not start or enable services", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
-    ("no service activation", re.search(r"^\\s*systemctl\\s+(?:start|enable)\\b", install_text, re.MULTILINE) is None),
+    ("no service activation", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no Secure Boot enrollment", "mokutil --import" not in install_text and "AUTO_ENROLL" not in install_text),
     ("controller ownership marker", "write_managed_load 1" in controller_text),
     ("module token parameter injected before Kbuild", "module_param_string(vibeshine_drmctl_token" in formula_text),
