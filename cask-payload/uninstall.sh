@@ -46,6 +46,7 @@ unit_is_active() {
 }
 
 [[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"
+log "starting privileged uninstall"
 for command_name in stat awk sha256sum timeout; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
@@ -64,6 +65,7 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
 fi
 
 # Stop the optional pool before touching its helpers or the DRM module.
+log "checking and stopping optional Vibeshine services"
 if command -v systemctl >/dev/null 2>&1; then
   if unit_is_active vibeshine-vkms.service; then
     systemctl_bounded 45 "stopping vibeshine-vkms.service" stop vibeshine-vkms.service
@@ -73,6 +75,7 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
+log "checking loaded DRM module"
 if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   if [[ "$STATE_TRUSTED" != "1" ]]; then
     log "module is loaded but the Cask state is missing; refusing to unload it and leaving it loaded until reboot"
@@ -117,6 +120,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   fi
 fi
 
+log "checking ownership of installed systemd units"
 UNIT_DIR="/etc/systemd/system"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   unit_path="$UNIT_DIR/$unit"
