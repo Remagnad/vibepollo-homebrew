@@ -1,4 +1,4 @@
-name: Build and publish Vibepollo app bottle
+name: Watch upstream stable releases
 
 on:
   schedule:
@@ -10,6 +10,13 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/watch-upstream-release.yml"
+      - "scripts/**"
+      - "Formula/**"
+
 permissions:
   contents: read
 
@@ -464,49 +471,6 @@ jobs:
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
-      - name: Unlink outdated cached Vibepollo dependencies before upgrades
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          # Dependency caches contain both old kegs and live prefix symlinks.
-          # Homebrew can upgrade a dependency while its previous keg is still
-          # linked, causing the new bottle to fail with "Could not symlink".
-          # Only unlink outdated formulae in the Vibepollo dependency closure;
-          # leave unrelated cached tools linked and available to later steps.
-          formula="Remagnad/vibepollo-homebrew/vibepollo-app"
-          brew trust --formula "$formula"
-
-          # Do not hide a trust or dependency-resolution error inside process
-          # substitution: capture the command first so pipefail can stop the job.
-          dependency_output="$(brew deps --include-build --include-optional --include-test "$formula")"
-          mapfile -t app_dependencies < <(
-            printf '%s\n' "$dependency_output" |
-              sed 's/^[^:]*: //' |
-              tr ' ' '\n' |
-              sed '/^$/d' |
-              sort -u
-          )
-          if (("${#app_dependencies[@]}" == 0)); then
-            echo "::error::Homebrew returned an empty Vibepollo dependency closure."
-            exit 1
-          fi
-          mapfile -t outdated_formulae < <(
-            brew outdated --formula --json=v2 | jq -r '.formulae[].name'
-          )
-
-          for outdated in "${outdated_formulae[@]}"; do
-            for dependency in "${app_dependencies[@]}"; do
-              if [[ "$outdated" == "$dependency" ]]; then
-                if brew list --versions "$outdated" >/dev/null 2>&1; then
-                  echo "Unlinking cached outdated dependency before upgrade: $outdated"
-                  brew unlink "$outdated"
-                fi
-                break
-              fi
-            done
-          done
-
       - name: Build formula with Homebrew
         shell: bash
         run: |
@@ -762,7 +726,7 @@ jobs:
         run: bash scripts/prune-actions-caches.sh main "$KEEP_DEPS_KEY" "$KEEP_CCACHE_KEY"
 
   publish:
-    name: Publish source archive and Linux x86_64 app bottle
+    name: Publish release assets and update Formula
     needs: [check-upstream, build-and-verify]
     if: needs.check-upstream.outputs.updated == 'true'
     runs-on: ubuntu-24.04
@@ -772,19 +736,28 @@ jobs:
       - name: Check out tap
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Download verified app build
+      - name: Download verified build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vibepollo-linux-x86_64-${{ needs.check-upstream.outputs.version }}
           path: dist
 
-      - name: Set up Homebrew for app Formula audit
+      - name: Set up Homebrew for formula audit
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
         with:
           core: false
           cask: false
 
-      - name: Render and audit the app Formula only
+      - name: Create a local tap for formula validation
+        run: |
+          set -Eeuo pipefail
+          brew tap-new --no-git Remagnad/vibepollo-homebrew
+          tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
+          mkdir -p "$tap_path/Formula" "$tap_path/scripts"
+          cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
+          echo "tap_path=$tap_path" >> "$GITHUB_ENV"
+
+      - name: Verify build artifact and render Formula in isolated publish job
         env:
           VERSION: ${{ needs.check-upstream.outputs.version }}
           TAG: ${{ needs.check-upstream.outputs.tag }}
@@ -803,14 +776,19 @@ jobs:
           recorded_name="$(tr -d '[:space:]' < dist/bottle-filename.txt)"
           bottle_url_name="$(tr -d '[:space:]' < dist/bottle-url-filename.txt)"
           bottle_url_file="dist/$bottle_url_name"
-          [[ "$bottle_name" == "$recorded_name" ]]
+          if [[ "$bottle_name" != "$recorded_name" ]]; then
+            echo "::error::Bottle filename does not match the build manifest."
+            exit 1
+          fi
           test -s "$bottle_url_file"
 
           source_sha="$(sha256sum "$source_asset" | awk '{print $1}')"
           bottle_sha="$(sha256sum "$bottle_file" | awk '{print $1}')"
           bottle_url_sha="$(sha256sum "$bottle_url_file" | awk '{print $1}')"
-          [[ "$bottle_sha" == "$bottle_url_sha" ]]
-
+          if [[ "$bottle_sha" != "$bottle_url_sha" ]]; then
+            echo "::error::Bottle URL alias does not match the verified bottle archive."
+            exit 1
+          fi
           python3 - "$bottle_json" "$bottle_sha" <<'PY'
           import json
           import re
@@ -828,7 +806,8 @@ jobs:
 
           expected = None
           for record in records:
-              entry = record.get("bottle", {}).get("tags", {}).get("x86_64_linux")
+              bottle = record.get("bottle", {})
+              entry = bottle.get("tags", {}).get("x86_64_linux")
               if entry:
                   expected = entry.get("sha256")
                   break
@@ -853,12 +832,12 @@ jobs:
             --bottle-root-url "$release_root" \
             --output "$RUNNER_TEMP/Formula/vibepollo-app.rb"
 
-          brew tap-new --no-git Remagnad/vibepollo-homebrew
-          tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
-          mkdir -p "$tap_path/Formula" "$tap_path/scripts"
+          brew style --fix "$RUNNER_TEMP/Formula/vibepollo-app.rb"
+
+          # Audit the formula generated from trusted tap code before any release
+          # asset is published. The build job never supplies executable formula
+          # code to this write-enabled job.
           cp "$RUNNER_TEMP/Formula/vibepollo-app.rb" "$tap_path/Formula/vibepollo-app.rb"
-          cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
-          brew style --fix "$tap_path/Formula/vibepollo-app.rb"
           brew trust --formula Remagnad/vibepollo-homebrew/vibepollo-app
           brew audit --strict --formula Remagnad/vibepollo-homebrew/vibepollo-app
 
@@ -867,7 +846,7 @@ jobs:
             sha256sum "vibepollo-source-$VERSION.tar.gz" "$bottle_name" "$bottle_url_name" > SHA256SUMS
           )
 
-      - name: Publish source archive, app bottle and checksums
+      - name: Publish source bundle and bottle
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check-upstream.outputs.version }}
@@ -877,12 +856,15 @@ jobs:
           set -Eeuo pipefail
           release_tag="vibepollo-$VERSION"
           release_title="Vibepollo $VERSION - Homebrew Linux x86_64"
+
           cat > dist/release-notes.md <<EOF
-          Automated Homebrew Linux x86_64 app build of upstream Vibepollo $VERSION.
+          Automated Homebrew build of upstream Vibepollo $VERSION.
 
           - Upstream tag: $TAG
           - Upstream commit: $COMMIT
-          - Application bottle built, installed from bottle and tested by GitHub Actions.
+          - Target: Linux x86_64 (Ubuntu 22.04 builder)
+          - Source bundle and bottle were built and tested by GitHub Actions.
+          - The bottle was poured in a separate Homebrew install transaction and tested again.
 
           Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           EOF
@@ -906,25 +888,43 @@ jobs:
               --notes-file dist/release-notes.md
           fi
 
-      - name: Rebase publication onto latest main and commit app Formula
-        env:
-          VERSION: ${{ needs.check-upstream.outputs.version }}
-          COMMIT: ${{ needs.check-upstream.outputs.commit }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Rebase publication onto the latest main
         run: |
           set -Eeuo pipefail
           git fetch origin main
           git checkout -B main origin/main
+
+      - name: Audit and commit the final Formula
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+        run: |
+          set -Eeuo pipefail
           current="$(tr -d '[:space:]' < upstream-version)"
-          newest="$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)"
+          newest="$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n1)"
+          if [[ "$newest" != "$VERSION" ]]; then
+            echo "main already contains a newer Vibepollo formula ($current); skipping downgrade."
+            exit 0
+          fi
+
+          mkdir -p Formula
+          cp "$RUNNER_TEMP/Formula/vibepollo-app.rb" Formula/vibepollo-app.rb
+          cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
+          brew audit --strict --online --formula Remagnad/vibepollo-homebrew/vibepollo-app
+
+      - name: Commit the successful upstream version to main
+        env:
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          current="$(tr -d '[:space:]' < upstream-version)"
+          newest="$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n1)"
           if [[ "$newest" != "$VERSION" ]]; then
             echo "main already contains a newer Vibepollo release ($current); skipping downgrade."
             exit 0
           fi
-
-          cp "$RUNNER_TEMP/Formula/vibepollo-app.rb" Formula/vibepollo-app.rb
-          brew audit --strict --online --formula Remagnad/vibepollo-homebrew/vibepollo-app
+          test -s Formula/vibepollo-app.rb
           printf '%s\n' "$VERSION" > upstream-version
           printf '%s\n' "$COMMIT" > upstream-commit
           git diff --check
@@ -932,8 +932,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula/vibepollo-app.rb upstream-version upstream-commit
           if git diff --cached --quiet; then
-            echo "App Formula already matches the verified release; no commit required."
+            echo "Formula already matches the verified release; no commit required."
             exit 0
           fi
-          git commit -m "Update Vibepollo app bottle to $VERSION"
+          git commit -m "Update Vibepollo to $VERSION"
           git push origin HEAD:main
