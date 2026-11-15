@@ -74,7 +74,21 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   [[ "$expected_token" =~ ^[0-9a-f]{64}$ && "$loaded_token" == "$expected_token" ]] ||
     fail "the loaded module does not carry this Cask helper's load token; refusing to unload an external module"
   command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
-  rmmod "$MODULE_NAME" || fail "module is busy; close virtual displays, unload it, then retry"
+  # A compositor may keep DRM file descriptors open after the configfs pool
+  # has been stopped. In that case the kernel correctly pins the module.
+  # Do not force-unload it or abort the Cask removal: unlinking the installed
+  # module file is safe, and the in-memory module will disappear at reboot.
+  # Only defer when the kernel reports a positive reference count; any other
+  # rmmod failure remains fatal.
+  rmmod_output=""
+  if ! rmmod_output="$(rmmod "$MODULE_NAME" 2>&1)"; then
+    module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
+    if [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); then
+      printf 'Vibeshine DRM module is still referenced by the running desktop (refcount %s). Leaving it loaded until reboot; removing the Cask files safely.\\n' "$module_refcount"
+    else
+      fail "could not unload the managed module: $rmmod_output"
+    fi
+  fi
 fi
 
 UNIT_DIR="/etc/systemd/system"
