@@ -260,6 +260,23 @@ def atomic_replace(path: pathlib.Path, content: bytes, mode: int) -> None:
             pass
 
 
+def authenticate_for_cask_uninstall() -> None:
+    """Acquire sudo credentials in the foreground before Homebrew spawns artifact scripts."""
+    sudo = shutil.which("sudo")
+    if not sudo:
+        raise RuntimeError("sudo is required to remove the privileged Vibepollo Cask integration")
+    environment = os.environ.copy()
+    environment.pop("SUDO_ASKPASS", None)
+    try:
+        subprocess.run(
+            [sudo, "-v", "-p", "Vibepollo Cask removal — password: "],
+            check=True,
+            env=environment,
+        )
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError("Administrator authentication failed; the Cask was not uninstalled") from error
+
+
 def main() -> int:
     if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
         self_test()
@@ -344,8 +361,18 @@ def main() -> int:
         print(f"Original receipt backup: {receipt_backup}", flush=True)
     if caskfile_removed:
         print(f"Original Cask definition backup: {caskfile_backup}", flush=True)
+    # Authenticate while this migration process still owns the foreground
+    # terminal. Homebrew may run Cask uninstall artifacts in a child process
+    # group that cannot safely prompt on /dev/tty.
+    authenticate_for_cask_uninstall()
     print("Continuing with the normal Homebrew Cask uninstall...", flush=True)
-    return subprocess.run([brew, "uninstall", "--cask", REPOSITORY + "/" + TOKEN]).returncode
+    environment = os.environ.copy()
+    environment.pop("SUDO_ASKPASS", None)
+    return subprocess.run(
+        [brew, "uninstall", "--cask", REPOSITORY + "/" + TOKEN],
+        env=environment,
+        check=False,
+    ).returncode
 
 
 if __name__ == "__main__":
