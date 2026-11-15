@@ -103,6 +103,11 @@ def find_installed_cask_definition(caskroom: pathlib.Path, version: str) -> path
 
 
 
+def serialize_receipt(receipt: dict) -> bytes:
+    """Serialize a Homebrew receipt as valid JSON with a trailing newline."""
+    return (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
 def self_test() -> None:
     receipt = {
         "uninstall_artifacts": [
@@ -112,6 +117,10 @@ def self_test() -> None:
         ],
         "install_artifacts": [{"script": [{"sudo": True}]}],
     }
+    serialized_receipt = serialize_receipt(receipt)
+    assert serialized_receipt.endswith(b"\n")
+    assert json.loads(serialized_receipt.decode("utf-8")) == receipt
+
     uninstall = receipt["uninstall_artifacts"]
     assert contains_uninstall_script(uninstall)
     removed = remove_sudo_true(uninstall)
@@ -256,7 +265,7 @@ def main() -> int:
 
     updated_script = download_uninstaller(payload_url, expected_sha)
     removed = remove_sudo_true(uninstall_artifacts)
-    updated_receipt = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\\n").encode("utf-8")
+    updated_receipt = serialize_receipt(receipt)
 
     receipt_backup = receipt_path.with_name("INSTALL_RECEIPT.json.before-terminal-sudo")
     caskfile_backup = installed_caskfile.with_name(
