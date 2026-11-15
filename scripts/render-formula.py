@@ -77,8 +77,7 @@ __BOTTLE_BLOCK__
   UPSTREAM_TAG = "__UPSTREAM_TAG__".freeze
   UPSTREAM_COMMIT = "__UPSTREAM_COMMIT__".freeze
 
-  # Resolved only by source builds. CI installs this toolchain explicitly.
-  CUDA_FORMULA = "lizardbyte/homebrew/cuda@12.9".freeze
+  # Minimal pinned NVIDIA compiler/runtime components used only for source builds.
   CUDA_VERSION = "12.9".freeze
 
   # Homebrew fetches this resource before entering the build sandbox.
@@ -96,13 +95,25 @@ __BOTTLE_BLOCK__
     c_compiler = gcc_bin/"gcc-14"
     cxx_compiler = gcc_bin/"g++-14"
 
-    # Use the same pinned CUDA Toolkit policy as Vibepollo upstream Linux releases.
-    cuda_formula = Formula[CUDA_FORMULA]
-    cuda_prefix = cuda_formula.opt_libexec
-    cuda_nvcc = cuda_prefix/"homebrew/bin/nvcc"
+    # CI stages only the pinned NVIDIA build components outside the Homebrew Cellar.
+    # This keeps the full multi-gigabyte CUDA Toolkit out of the dependency cache.
+    cuda_prefix = HOMEBREW_CACHE/"vibepollo-cuda-12.9.1"
+    cuda_nvcc = cuda_prefix/"bin/nvcc"
     cuda_cuobjdump = cuda_prefix/"bin/cuobjdump"
     odie "Pinned CUDA nvcc is missing: #{cuda_nvcc}" unless cuda_nvcc.executable?
     odie "Pinned CUDA cuobjdump is missing: #{cuda_cuobjdump}" unless cuda_cuobjdump.executable?
+    cuda_library_paths = [
+      cuda_prefix/"lib64",
+      cuda_prefix/"lib",
+      cuda_prefix/"nvvm/lib64",
+      *Dir[cuda_prefix/"targets/*/lib"].map { |path| Pathname.new(path) },
+    ].select(&:directory?).map(&:to_s)
+    ENV["CUDA_HOME"] = cuda_prefix.to_s
+    ENV["CUDA_PATH"] = cuda_prefix.to_s
+    ENV["PATH"] = "#{cuda_prefix}/bin:#{ENV["PATH"]}"
+    ENV["LD_LIBRARY_PATH"] = (
+      cuda_library_paths + ENV["LD_LIBRARY_PATH"].to_s.split(":").reject(&:empty?)
+    ).uniq.join(":")
     nvcc_version = Utils.safe_popen_read(cuda_nvcc, "--version")
     odie "Expected CUDA Toolkit 12.9, got: #{nvcc_version}" unless nvcc_version.include?("release #{CUDA_VERSION},")
 
@@ -146,6 +157,7 @@ __BOTTLE_BLOCK__
         "-DSUNSHINE_REQUIRE_CUDA_PASCAL=ON",
         "-DCMAKE_CUDA_COMPILER:PATH=#{cuda_nvcc}",
         "-DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH=#{cuda_prefix}",
+        "-DCUDAToolkit_ROOT:PATH=#{cuda_prefix}",
         "-DCMAKE_CUDA_HOST_COMPILER=#{cxx_compiler}",
         "-DSUNSHINE_ENABLE_DRM=OFF",
         "-DSUNSHINE_ENABLE_TRAY=ON",
@@ -230,7 +242,7 @@ __BOTTLE_BLOCK__
       driver and machine-integration packages. This bottle was compiled with
       CUDA Toolkit 12.9.1, but the Toolkit is not an installation dependency;
       a compatible NVIDIA driver is still required for NVIDIA acceleration.
-      Source builds require the LizardByte CUDA 12.9 tap formula. The C++ AppIndicator tray
+      Source builds use the pinned NVIDIA CUDA 12.9.1 compiler/runtime component archives. The C++ AppIndicator tray
       is built into Vibepollo; login autostart is reserved for the Cask integration.
     EOS
   end

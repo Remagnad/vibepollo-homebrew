@@ -20,10 +20,12 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
-  group: vibepollo-debug-${{ github.ref }}
+  # Share the cache-writer lock with the release workflow.
+  group: vibepollo-upstream-release
   cancel-in-progress: false
 
 env:
@@ -101,7 +103,8 @@ jobs:
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Homebrew dependency cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: deps-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ steps.brew-paths.outputs.cellar }}
@@ -113,10 +116,9 @@ jobs:
             ${{ steps.brew-paths.outputs.prefix }}/share
             ${{ steps.brew-paths.outputs.prefix }}/etc
             ${{ steps.brew-paths.outputs.prefix }}/Frameworks
-            ${{ steps.brew-paths.outputs.cache_dir }}/downloads
-          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-${{ steps.deps-cache.outputs.week }}
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
-            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-
 
       - name: Unlink cached D-Bus before dependency upgrades
         shell: bash
@@ -133,7 +135,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends libudev-dev ccache
 
       - name: Restore Debug compiler cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: debug-ccache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/Homebrew/vibepollo-debug-ccache
           key: vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
@@ -142,6 +145,7 @@ jobs:
           save-always: true
 
       - name: Configure compiler cache
+        id: debug-ccache-configure
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -156,16 +160,18 @@ jobs:
           echo "GLIBC: $(getconf GNU_LIBC_VERSION)"
           echo "Homebrew: $(brew --version | head -n1)"
 
-      - name: Add and trust the pinned CUDA Toolkit formula tap
-        run: |
-          brew tap LizardByte/homebrew
-          brew trust --formula lizardbyte/homebrew/cuda@12.9
-
-      - name: Install pinned CUDA Toolkit for the Debug source build
+      - name: Install minimal pinned NVIDIA CUDA components
         shell: bash
         run: |
           set -Eeuo pipefail
-          brew install lizardbyte/homebrew/cuda@12.9
+          cuda_prefix="$HOMEBREW_CACHE_DIR/vibepollo-cuda-12.9.1"
+          bash scripts/install-cuda-components.sh "$cuda_prefix"
+          {
+            echo "VIBEPOLLO_CUDA_TOOLKIT_ROOT=$cuda_prefix"
+            echo "CUDA_HOME=$cuda_prefix"
+            echo "PATH=$cuda_prefix/bin:$PATH"
+            echo "LD_LIBRARY_PATH=$cuda_prefix/lib64:$cuda_prefix/lib:$cuda_prefix/nvvm/lib64:$cuda_prefix/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}"
+          } >> "$GITHUB_ENV"
 
       - name: Register local tap and install formula dependencies
         shell: bash
@@ -204,7 +210,8 @@ jobs:
           done
           # The CUDA Toolkit is intentionally not listed in formula dependencies;
           # preserve its prefix for this source build after installing it explicitly.
-          cuda_prefix="$(brew --prefix cuda@12.9)"
+          cuda_prefix="$VIBEPOLLO_CUDA_TOOLKIT_ROOT"
+          test -x "$cuda_prefix/bin/nvcc"
           cmake_prefix="$cmake_prefix;$cuda_prefix"
           pkgconfig_path="$(printf '%s:' "${pkgconfig_paths[@]}")"
           pkgconfig_path="${pkgconfig_path%:}"
@@ -332,8 +339,9 @@ jobs:
             -DFFMPEG_PREPARED_BINARIES="$FFMPEG_PREPARED_BINARIES" \
             -DSUNSHINE_ENABLE_CUDA=ON \
             -DSUNSHINE_REQUIRE_CUDA_PASCAL=ON \
-            -DCMAKE_CUDA_COMPILER:PATH="$(brew --prefix cuda@12.9)/homebrew/bin/nvcc" \
-            -DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH="$(brew --prefix cuda@12.9)" \
+            -DCMAKE_CUDA_COMPILER:PATH="$cuda_prefix/bin/nvcc" \
+            -DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH="$cuda_prefix" \
+            -DCUDAToolkit_ROOT:PATH="$cuda_prefix" \
             -DCMAKE_CUDA_HOST_COMPILER="$gcc_bin/g++-14" \
             -DSUNSHINE_ENABLE_DRM=OFF \
             -DSUNSHINE_ENABLE_TRAY=ON \
@@ -376,7 +384,7 @@ jobs:
           set -Eeuo pipefail
           cmake --build build-debug --parallel 6 2>&1 | tee dist/diagnostics-build.log
           cmake --install build-debug 2>&1 | tee dist/diagnostics-install.log
-          cuda_cuobjdump="$(brew --prefix cuda@12.9)/bin/cuobjdump"
+          cuda_cuobjdump="$VIBEPOLLO_CUDA_TOOLKIT_ROOT/bin/cuobjdump"
           "$cuda_cuobjdump" --list-elf build-debug/vibepollo > dist/diagnostics-cuda-elfs.txt
           grep -q "sm_61\\." dist/diagnostics-cuda-elfs.txt || {
             echo "::error::Debug CUDA binary is missing Pascal sm_61 device code."
@@ -479,3 +487,36 @@ jobs:
         if: always()
         shell: bash
         run: ccache --show-stats || true
+
+      - name: Save reusable Homebrew dependencies
+        id: deps-cache-save
+        if: always() && steps.brew-paths.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.brew-paths.outputs.cellar }}
+            ${{ steps.brew-paths.outputs.prefix }}/opt
+            ${{ steps.brew-paths.outputs.prefix }}/bin
+            ${{ steps.brew-paths.outputs.prefix }}/sbin
+            ${{ steps.brew-paths.outputs.prefix }}/include
+            ${{ steps.brew-paths.outputs.prefix }}/lib
+            ${{ steps.brew-paths.outputs.prefix }}/share
+            ${{ steps.brew-paths.outputs.prefix }}/etc
+            ${{ steps.brew-paths.outputs.prefix }}/Frameworks
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
+
+      - name: Save Debug compiler cache
+        id: debug-ccache-save
+        if: always() && steps.debug-ccache-configure.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/Homebrew/vibepollo-debug-ccache
+          key: vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
+
+      - name: Prune superseded Homebrew and Debug compiler caches
+        if: always() && steps.deps-cache-save.outcome == 'success' && steps.debug-ccache-save.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_DEPS_KEY: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
+          KEEP_CCACHE_KEY: vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
+        run: bash scripts/prune-actions-caches.sh debug "$KEEP_DEPS_KEY" "$KEEP_CCACHE_KEY"

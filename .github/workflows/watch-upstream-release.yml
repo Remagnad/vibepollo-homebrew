@@ -126,6 +126,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
+      actions: write
       contents: read
     steps:
       - name: Check out tap
@@ -138,11 +139,6 @@ jobs:
           # here adds several minutes and is unnecessary for a third-party tap.
           core: false
           cask: false
-
-      - name: Add and trust the pinned CUDA Toolkit formula tap
-        run: |
-          brew tap LizardByte/homebrew
-          brew trust --formula lizardbyte/homebrew/cuda@12.9
 
       - name: Export Homebrew cache paths
         id: brew-paths
@@ -169,7 +165,8 @@ jobs:
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
       - name: Restore prebuilt Homebrew dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: deps-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ steps.brew-paths.outputs.cellar }}
@@ -181,12 +178,10 @@ jobs:
             ${{ steps.brew-paths.outputs.prefix }}/share
             ${{ steps.brew-paths.outputs.prefix }}/etc
             ${{ steps.brew-paths.outputs.prefix }}/Frameworks
-            ${{ steps.brew-paths.outputs.cache_dir }}/downloads
-          # Formula source URLs and bottle hashes change every release; the dependency graph does not.
-          # Refresh weekly, but restore the previous dependency cache when the week changes.
-          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-${{ steps.deps-cache.outputs.week }}
+          # Cache installed kegs and Homebrew symlinks, not a second copy of every bottle download.
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
           restore-keys: |
-            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v3-
+            vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-
 
       - name: Unlink cached D-Bus before dependency upgrades
         shell: bash
@@ -223,7 +218,8 @@ jobs:
           fi
 
       - name: Restore C/C++ compiler cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ccache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/Homebrew/vibepollo-ccache
           key: vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
@@ -247,6 +243,7 @@ jobs:
           fi
 
       - name: Configure C/C++ compiler cache
+        id: ccache-configure
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -441,11 +438,14 @@ jobs:
           test ! -e "$(brew --cellar)/vibepollo-app"
           test ! -e "$(brew --prefix)/opt/vibepollo-app"
 
-      - name: Install pinned CUDA Toolkit for the source build
+      - name: Install minimal pinned NVIDIA CUDA components
         shell: bash
         run: |
           set -Eeuo pipefail
-          brew install lizardbyte/homebrew/cuda@12.9
+          bash scripts/install-cuda-components.sh "$HOMEBREW_CACHE_DIR/vibepollo-cuda-12.9.1"
+          test -x "$HOMEBREW_CACHE_DIR/vibepollo-cuda-12.9.1/bin/nvcc"
+          test -x "$HOMEBREW_CACHE_DIR/vibepollo-cuda-12.9.1/bin/cuobjdump"
+          echo "Minimal CUDA 12.9.1 components: $(du -sh "$HOMEBREW_CACHE_DIR/vibepollo-cuda-12.9.1" | awk '{print $1}')"
 
       - name: Register the working tree as a local Homebrew tap
         shell: bash
@@ -645,6 +645,7 @@ jobs:
           retention-days: 30
 
       - name: Remove Vibepollo before saving the dependency cache
+        id: cache-cleanup
         if: always()
         shell: bash
         run: |
@@ -659,6 +660,58 @@ jobs:
           fi
           test ! -e "$(brew --cellar)/vibepollo-app"
           test ! -e "$(brew --prefix)/opt/vibepollo-app"
+
+      - name: Report reusable cache footprint
+        if: always() && steps.cache-cleanup.outcome == 'success' && steps.brew-paths.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -d "$HOMEBREW_CELLAR" ]]; then
+            echo "Homebrew Cellar is unavailable; skipping cache size report."
+            exit 0
+          fi
+          echo "Homebrew Cellar:"
+          du -sh "$HOMEBREW_CELLAR"
+          echo "Largest cached kegs:"
+          du -sh "$HOMEBREW_CELLAR"/* 2>/dev/null | sort -hr | head -n 15 || true
+          if [[ -e "$HOMEBREW_CELLAR/cuda@12.9" ]]; then
+            echo "::error::Full Homebrew CUDA keg must not be part of the dependency cache."
+            exit 1
+          fi
+          echo "Downloaded bottle archives are excluded from this cache."
+
+      - name: Save C/C++ compiler cache
+        id: ccache-save
+        if: always() && steps.ccache-configure.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/Homebrew/vibepollo-ccache
+          key: vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
+
+      - name: Save reusable Homebrew dependencies
+        id: deps-cache-save
+        if: always() && steps.cache-cleanup.outcome == 'success' && steps.brew-paths.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.brew-paths.outputs.cellar }}
+            ${{ steps.brew-paths.outputs.prefix }}/opt
+            ${{ steps.brew-paths.outputs.prefix }}/bin
+            ${{ steps.brew-paths.outputs.prefix }}/sbin
+            ${{ steps.brew-paths.outputs.prefix }}/include
+            ${{ steps.brew-paths.outputs.prefix }}/lib
+            ${{ steps.brew-paths.outputs.prefix }}/share
+            ${{ steps.brew-paths.outputs.prefix }}/etc
+            ${{ steps.brew-paths.outputs.prefix }}/Frameworks
+          key: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
+
+      - name: Prune superseded Homebrew and compiler caches
+        if: always() && steps.deps-cache-save.outcome == 'success' && steps.ccache-save.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_DEPS_KEY: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
+          KEEP_CCACHE_KEY: vibepollo-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
+        run: bash scripts/prune-actions-caches.sh main "$KEEP_DEPS_KEY" "$KEEP_CCACHE_KEY"
 
   publish:
     name: Publish release assets and update Formula
