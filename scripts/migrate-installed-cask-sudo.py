@@ -142,58 +142,42 @@ def serialize_receipt(receipt: dict) -> bytes:
 
 def self_test() -> None:
     receipt = {
-        "uninstall_artifacts": [
-            {"uninstall": [{"script": {"executable": "/home/linuxbrew/Caskroom/vibepollo/2.0.6/uninstall.sh",
-                                         "sudo": True, "args": []}}]},
-            {"uninstall": [{"delete": ["/var/lib/vibepollo/drm/old-file"]}]},
-        ],
+        "uninstall_artifacts": [{"uninstall": [{"script": {
+            "executable": "/tmp/uninstall.sh", "sudo": False, "args": []
+        }}]}],
         "install_artifacts": [{"script": [{"sudo": True}]}],
     }
-    serialized_receipt = serialize_receipt(receipt)
-    assert serialized_receipt.endswith(b"\n")
-    assert json.loads(serialized_receipt.decode("utf-8")) == receipt
-
+    serialized = serialize_receipt(receipt)
+    assert serialized.endswith(b"\n")
+    assert json.loads(serialized.decode("utf-8")) == receipt
     uninstall = receipt["uninstall_artifacts"]
     assert contains_uninstall_script(uninstall)
-    removed = ensure_sudo_true(uninstall)
-    assert removed == 1
-    assert "sudo" not in uninstall[0]["uninstall"][0]["script"]
+    assert ensure_sudo_true(uninstall) == 1
+    assert uninstall[0]["uninstall"][0]["script"]["sudo"] is True
     assert receipt["install_artifacts"][0]["script"][0]["sudo"] is True
 
-    installed_ruby = """cask "vibepollo" do
+    installed_ruby = '''cask "vibepollo" do
   uninstall script: {
     executable: "/tmp/uninstall.sh",
-    sudo: true,
   }
 end
-"""
-    migrated_ruby, ruby_removed = ensure_ruby_uninstall_sudo(installed_ruby)
-    assert ruby_removed == 1
-    assert "sudo: true" not in migrated_ruby
-    assert 'executable: "/tmp/uninstall.sh"' in migrated_ruby
+'''
+    migrated_ruby, changed = ensure_ruby_uninstall_sudo(installed_ruby)
+    assert changed == 1 and "sudo: true," in migrated_ruby
+    assert ensure_ruby_uninstall_sudo(migrated_ruby) == (migrated_ruby, 0)
 
     with tempfile.TemporaryDirectory(prefix="vibepollo-cask-json-test-") as temporary:
         json_path = pathlib.Path(temporary) / "vibepollo.json"
-        # Homebrew 6/7 may write a minimal metadata snapshot with no artifacts.
         minimal_json = b'{\n  "url_specs": {},\n  "artifacts": null\n}\n'
         json_path.write_bytes(minimal_json)
-        migrated_json, json_removed = update_installed_cask_definition(json_path)
-        assert json_removed == 0
-        assert migrated_json == minimal_json
-
-        # Older/full installed metadata can still contain sudo on artifacts.
-        full_json = {
-            "artifacts": [
-                {"uninstall": [{"script": {
-                    "executable": "/tmp/uninstall.sh", "sudo": True, "args": []
-                }}]}
-            ]
-        }
+        assert update_installed_cask_definition(json_path) == (minimal_json, 0)
+        full_json = {"artifacts": [{"uninstall": [{"script": {
+            "executable": "/tmp/uninstall.sh", "sudo": False, "args": []
+        }}]}]}
         json_path.write_text(json.dumps(full_json))
-        migrated_json, json_removed = update_installed_cask_definition(json_path)
-        migrated_document = json.loads(migrated_json.decode("utf-8"))
-        assert json_removed == 1
-        assert "sudo" not in migrated_document["artifacts"][0]["uninstall"][0]["script"]
+        migrated_json, changed = update_installed_cask_definition(json_path)
+        assert changed == 1
+        assert json.loads(migrated_json)["artifacts"][0]["uninstall"][0]["script"]["sudo"] is True
 
     with tempfile.TemporaryDirectory(prefix="vibepollo-receipt-test-") as temporary:
         caskroom = pathlib.Path(temporary) / "Caskroom" / "vibepollo"
@@ -202,7 +186,7 @@ end
         receipt_path.write_text("{}")
         assert receipt_path.is_file()
         assert not (caskroom / ".metadata" / "2.0.6" / "INSTALL_RECEIPT.json").exists()
-    print("PASS: Homebrew receipt location and installed Cask sudo migration")
+    print("PASS: Homebrew-native sudo migration")
 
 
 def load_release_metadata(tap_root: pathlib.Path) -> tuple[str, str, str]:
