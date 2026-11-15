@@ -54,6 +54,27 @@ command -v getent >/dev/null 2>&1 || fail "getent is required"
 SOCKET_USER="${SUDO_USER:-}"
 [[ -n "$SOCKET_USER" && "$SOCKET_USER" != root ]] || fail "install from your normal desktop user with sudo; SUDO_USER is required"
 getent passwd "$SOCKET_USER" >/dev/null || fail "could not resolve invoking user: $SOCKET_USER"
+if systemctl is-active --quiet vibeshine-vkms.service || systemctl is-active --quiet vibeshine-vkms-control.socket; then
+  fail "stop the Vibeshine pool and control socket before upgrading the Cask"
+fi
+for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+  existing="/etc/systemd/system/$unit"
+  [[ -e "$existing" || -L "$existing" ]] || continue
+  [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing unit: $existing"
+  expected="$(state_value "unit_${unit}_sha256")"
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "refusing to replace an unowned existing unit: $unit"
+  actual="$(sha256sum "$existing" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
+done
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  existing="$BIN_DIR/$helper"
+  [[ -e "$existing" || -L "$existing" ]] || continue
+  [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing helper: $existing"
+  expected="$(state_value "helper_${helper}_sha256")"
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "refusing to replace an unowned helper: $helper"
+  actual="$(sha256sum "$existing" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || fail "existing helper was modified outside this Cask: $helper"
+done
 
 KERNEL_RELEASE="$(cat "$FORMULA_PREFIX/libexec/kernel-release")"
 EXPECTED_VERSION="$(cat "$FORMULA_PREFIX/libexec/module-version")"
