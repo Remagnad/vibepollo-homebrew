@@ -27,6 +27,12 @@ cask "vibepollo" do
   # Its env override is applied to the sudo process itself, so sudo -A uses
   # this terminal-backed helper instead of an inherited graphical askpass.
   uninstall_preflight_steps do
+    # Preserve the user's configured graphical askpass for non-interactive
+    # sessions; the wrapper uses it only when no controlling terminal exists.
+    run "/usr/bin/env",
+        args: ["bash", "-c", 'printf "%s" "${SUDO_ASKPASS-}"'],
+        stdout_path: "vibepollo-original-askpass"
+
     run "uninstall.sh",
         sudo: true,
         env: {
