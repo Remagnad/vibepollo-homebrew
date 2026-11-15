@@ -235,5 +235,6 @@ if command -v mokutil >/dev/null 2>&1; then
   fi
 fi
 printf '\nInstalled and signed vibeshine_drm.ko for %s.\n' "$KERNEL_RELEASE"
-printf 'The module was NOT loaded and no service was enabled.\n'
-printf 'Load it only when needed with: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
+printf 'The module was NOT loaded; pool units were installed but neither started nor enabled.\n'
+printf 'Start the pool only when needed with: sudo systemctl start vibeshine-vkms.service\n'
+printf 'To load only the module without starting the pool: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
