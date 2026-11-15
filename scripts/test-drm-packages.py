@@ -77,10 +77,9 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> None:
                 member_bytes = stream.read()
                 if source_path is not None and member_bytes != source_path.read_bytes():
                     raise SystemExit(f"{label} content differs from {source_path}")
-                if source_path is not None:
-                    expected_mode = stat.S_IMODE(source_path.stat().st_mode)
-                    if stat.S_IMODE(member.mode) != expected_mode:
-                        raise SystemExit(f"{label} permissions differ for {member.name}")
+                expected_mode = 0o644 if member.name in payload_files[-3:] else 0o755
+                if stat.S_IMODE(member.mode) != expected_mode:
+                    raise SystemExit(f"{label} permissions differ for {member.name}")
                 if member.name in ("vibeshine-vkms", "vibeshine-vkms-quiesce"):
                     with tempfile.NamedTemporaryFile() as script:
                         script.write(member_bytes)
