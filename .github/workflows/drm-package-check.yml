@@ -70,6 +70,25 @@ jobs:
           brew audit --strict --formula "$tap_name/vibepollo-app"
           brew audit --strict --formula "$tap_name/vibepollo-drm"
           brew audit --strict --cask "$tap_name/vibepollo"
+          brew info --json=v2 --cask "$tap_name/vibepollo" > "$RUNNER_TEMP/vibepollo-cask-info.json"
+          python3 - "$RUNNER_TEMP/vibepollo-cask-info.json" <<'PY'
+          import json, pathlib, sys
+          document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          casks = document.get("casks", [])
+          if len(casks) != 1:
+              raise SystemExit("Homebrew JSON info did not return exactly one Vibepollo Cask")
+          artifacts = casks[0].get("artifacts", [])
+          entries = [item["uninstall_preflight_steps"] for item in artifacts
+                     if isinstance(item, dict) and "uninstall_preflight_steps" in item]
+          if len(entries) != 1:
+              raise SystemExit("Homebrew JSON info did not serialize uninstall_preflight_steps")
+          serialized = json.dumps(entries[0])
+          for marker in ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass",
+                         "vibepollo-original-askpass", "uninstall.sh"):
+              if marker not in serialized:
+                  raise SystemExit(f"Homebrew uninstall step is missing {marker}")
+          print("Homebrew JSON metadata preserves the privileged uninstall and askpass configuration.")
+          PY
 
       - name: Check patch whitespace
         run: git diff --check
