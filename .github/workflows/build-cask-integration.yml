@@ -114,7 +114,8 @@ jobs:
           bash scripts/package-cask-payload.sh "$output" "dist/$SOURCE_ASSET"
           sha256sum "$output" | tee dist/cask-sha256.txt
           echo "CASK_SHA256=$(awk '{print $1}' dist/cask-sha256.txt)" >> "$GITHUB_ENV"
-          echo "SOURCE_SHA256=$(sha256sum "dist/$SOURCE_ASSET" | awk '{print $1}')" >> "$GITHUB_ENV"
+          source_sha256="$(sha256sum "dist/$SOURCE_ASSET" | awk '{print $1}')"
+          echo "SOURCE_SHA256=$source_sha256" >> "$GITHUB_ENV"
 
       - name: Verify Cask archive contents and deterministic checksum
         env:
