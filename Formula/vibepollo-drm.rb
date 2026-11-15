@@ -8,6 +8,8 @@ class VibepolloDrm < Formula
   depends_on "make" => :build
   depends_on arch: :x86_64
   depends_on :linux
+  env :std
+
   LIBVIRTUALDISPLAY_COMMIT = "b6874684d82925d0d76f487d8e4ba3ec71c9721a".freeze
   MINIMUM_KERNEL_VERSION = [6, 16].freeze
 
