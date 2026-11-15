@@ -23,3 +23,49 @@ brew trust --formula lizardbyte/homebrew/cuda@12.9
 brew install lizardbyte/homebrew/cuda@12.9
 ```
 
+
+## Vibeshine DRM kernel module
+
+The vibepollo-drm Formula builds the pinned libvirtualdisplay vibeshine_drm.ko
+source against the headers for the currently running Linux kernel. It does not
+sign, install, load, or enable the module. Linux 6.16 or newer and matching
+kernel development files are required. Rebuild the Formula after changing
+kernels; automatic DKMS integration is not included yet.
+
+The vibepollo Cask depends on vibepollo-app and vibepollo-drm. Its privileged
+installer signs the Formula artifact with the key pair that the user places in
+this fixed directory:
+
+- /var/lib/vibepollo/drm/keys/mok.key — private key, root-owned, mode 0600 (or 0400).
+- /var/lib/vibepollo/drm/keys/MOK.der — DER certificate, root-owned.
+
+The Cask does not generate keys, enroll certificates, or overwrite the
+original key files. It installs the signed module and a small on-demand
+controller under /var/lib/vibepollo/drm. It does not load the module, enable
+a boot service, or start Vibepollo automatically.
+
+Example key setup (replace the source private-key filename if yours differs):
+
+    sudo install -d -o root -g root -m 0700 /var/lib/vibepollo/drm/keys
+    sudo install -o root -g root -m 0600 ~/Projects/Vibepollo/keys/MOK.priv /var/lib/vibepollo/drm/keys/mok.key
+    sudo install -o root -g root -m 0644 ~/Projects/Vibepollo/keys/MOK.der /var/lib/vibepollo/drm/keys/MOK.der
+
+Install the DRM Formula from source before installing the Cask:
+
+    brew install --build-from-source Remagnad/vibepollo-homebrew/vibepollo-drm
+    bbrew install --cask Remagnad/vibepollo-homebrew/vibepollo
+
+Load, inspect, or unload the module manually:
+
+    sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl load
+    sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl status
+    sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl unload
+
+The Cask uninstall removes its installed module and controller but preserves
+/var/lib/vibepollo/drm/keys. A loaded module must be unloaded before the
+Cask can be removed. Kernel-version changes require rebuilding and reinstalling
+the Formula and Cask until DKMS support is implemented.
+
+Static checks can be run with:
+
+    python3 scripts/test-drm-packages.py
