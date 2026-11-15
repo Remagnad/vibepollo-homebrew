@@ -112,7 +112,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
     log "unloading the Cask-managed DRM module"
     rmmod_output=""
     rmmod_rc=0
-    timeout --foreground --kill-after=5s 10s rmmod "$MODULE_NAME" > /dev/null 2> >(rmmod_output_file="$(mktemp)"; cat > "$rmmod_output_file"; printf '%s' "$rmmod_output_file" >&3) 3>&1 || rmmod_rc=$?
+    rmmod_output="$(timeout --foreground --kill-after=5s 10s rmmod "$MODULE_NAME" 2>&1)" || rmmod_rc=$?
     if (( rmmod_rc != 0 )); then
       module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
       if { [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); }; then
