@@ -71,7 +71,7 @@ def load_release_metadata(tap_root: pathlib.Path) -> tuple[str, str, str]:
     if not cask_file.is_file() or cask_file.is_symlink():
         raise RuntimeError(f"Cannot read current Cask definition: {cask_file}")
     text = cask_file.read_text(encoding="utf-8")
-    version_match = re.search(r'^\s*version "([0-9]+\\.[0-9]+\\.[0-9]+)"$', text, re.MULTILINE)
+    version_match = re.search(r'^\s*version "([0-9]+\.[0-9]+\.[0-9]+)"$', text, re.MULTILINE)
     sha_match = re.search(r'^\s*sha256 "([0-9a-f]{64})"$', text, re.MULTILINE)
     if not version_match or not sha_match:
         raise RuntimeError("Current Vibepollo Cask version or SHA-256 is invalid")
