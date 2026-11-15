@@ -18,37 +18,42 @@ components=(
   "cuda_cccl|cuda_cccl/linux-x86_64/cuda_cccl-linux-x86_64-12.9.27-archive.tar.xz|8b1a5095669e94f2f9afd7715533314d418179e9452be61e2fde4c82a3e542aa"
   "cuda_cuobjdump|cuda_cuobjdump/linux-x86_64/cuda_cuobjdump-linux-x86_64-12.9.82-archive.tar.xz|ee0de40e8c18068bfcc53e73510e7e7a1a80555205347940df67fa525d24452f"
 )
-fetch_and_extract() {
+fetch_component() {
   local component="$1" relative_path="$2" expected_sha="$3"
   local archive="$download_dir/${component}.tar.xz"
-  local component_dir="$extract_dir/$component"
   echo "Downloading $component: $relative_path"
   curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 \
     --connect-timeout 30 --max-time 600 "$base_url/$relative_path" -o "$archive"
   echo "$expected_sha  $archive" | sha256sum --check -
-  mkdir -p "$component_dir"
-  tar -xJf "$archive" -C "$component_dir"
-  local archive_root
-  archive_root="$(find "$component_dir" -mindepth 1 -maxdepth 1 -type d -name '*-archive' -print -quit)"
-  if [[ -z "$archive_root" || ! -d "$archive_root" ]]; then
-    echo "::error::Unexpected NVIDIA component archive layout: $component" >&2
-    find "$component_dir" -maxdepth 2 -print >&2
-    return 1
-  fi
-  cp -a "$archive_root/." "$merged_dir/"
 }
 pids=()
 for spec in "${components[@]}"; do
   IFS='|' read -r component relative_path expected_sha <<<"$spec"
-  fetch_and_extract "$component" "$relative_path" "$expected_sha" &
+  fetch_component "$component" "$relative_path" "$expected_sha" &
   pids+=("$!")
 done
 status=0
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
 if ((status != 0)); then
-  echo "::error::At least one pinned NVIDIA CUDA component failed to download or extract." >&2
+  echo "::error::At least one pinned NVIDIA CUDA component failed to download or verify." >&2
   exit 1
 fi
+
+# Extract and merge serially: several NVIDIA archives share directory names,
+# and concurrent cp -a operations into one root can race on directory creation.
+for spec in "${components[@]}"; do
+  IFS='|' read -r component relative_path expected_sha <<<"$spec"
+  component_dir="$extract_dir/$component"
+  mkdir -p "$component_dir"
+  tar -xJf "$download_dir/$component.tar.xz" -C "$component_dir"
+  archive_root="$(find "$component_dir" -mindepth 1 -maxdepth 1 -type d -name '*-archive' -print -quit)"
+  if [[ -z "$archive_root" || ! -d "$archive_root" ]]; then
+    echo "::error::Unexpected NVIDIA component archive layout: $component" >&2
+    find "$component_dir" -maxdepth 2 -print >&2
+    exit 1
+  fi
+  cp -a "$archive_root/." "$merged_dir/"
+done
 cuda_ld_library_path=""
 for library_dir in "$merged_dir/lib64" "$merged_dir/lib" "$merged_dir/nvvm/lib64" "$merged_dir/targets/x86_64-linux/lib"; do
   [[ ! -d "$library_dir" ]] || cuda_ld_library_path="${cuda_ld_library_path:+$cuda_ld_library_path:}$library_dir"
