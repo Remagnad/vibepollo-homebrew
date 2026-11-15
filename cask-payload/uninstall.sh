@@ -116,7 +116,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
     if (( rmmod_rc != 0 )); then
       module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
       if { [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); }; then
-        log "DRM module became busy (refcount $module_refcount); leaving it loaded until reboot"
+        log "DRM module became busy (refcount $module_refcount); Leaving it loaded until reboot"
       elif (( rmmod_rc == 124 || rmmod_rc == 137 )); then
         fail "rmmod did not finish within 10s; the module and integration files were left in place"
       else
@@ -187,4 +187,4 @@ for directory in bin state; do
   rmdir "$path" 2>/dev/null || true
 done
 log "removed Vibeshine DRM integration files"
-log "preserved signing keys in $DRM_ROOT/keys"
+log "Preserved signing keys in $DRM_ROOT/keys"
