@@ -1,0 +1,13 @@
+[Unit]
+Description=Vibeshine virtual-display control socket
+PartOf=vibeshine-vkms.service
+
+[Socket]
+ListenStream=/run/vibeshine/vkms-control.sock
+SocketMode=0660
+SocketGroup=@VIBESHINE_SOCKET_GROUP@
+DirectoryMode=0755
+Accept=yes
+RemoveOnStop=yes
+MaxConnections=16
+MaxConnectionsPerSource=4
