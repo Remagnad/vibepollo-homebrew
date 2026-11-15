@@ -111,9 +111,12 @@ for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibesh
         [[ -e "$helper" || -L "$helper" ]] || continue
         [[ -f "$helper" && ! -L "$helper" ]] || fail "refusing unsafe helper path: $helper"
         expected_helper_sha="$(state_value "helper_${helper_name}_sha256")"
-        [[ "$expected_helper_sha" =~ ^[0-9a-f]{64}$ ]] || fail "no ownership record for $helper_name; leaving it untouched"
-        actual_helper_sha="$(sha256sum "$helper" | awk '{print $1}')"
-        [[ "$actual_helper_sha" == "$expected_helper_sha" ]] || fail "$helper_name was modified outside this Cask; leaving it untouched"
+        if [[ ! "$expected_helper_sha" =~ ^[0-9a-f]{64}$ ]]; then
+          [[ "$helper_name" == "vibeshine-drmctl" && "$(state_value format)" == "1" ]] || fail "no ownership record for $helper_name; leaving it untouched"
+        else
+          actual_helper_sha="$(sha256sum "$helper" | awk '{print $1}')"
+          [[ "$actual_helper_sha" == "$expected_helper_sha" ]] || fail "$helper_name was modified outside this Cask; leaving it untouched"
+        fi
         rm -f -- "$helper"
       done
       ;;
