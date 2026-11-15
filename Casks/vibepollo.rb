@@ -35,7 +35,7 @@ cask "vibepollo" do
 
     run "uninstall.sh",
         sudo: true,
-        env: { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
+        env:  { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
 
   caveats <<~EOS
