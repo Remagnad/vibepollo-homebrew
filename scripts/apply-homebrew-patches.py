@@ -37,6 +37,39 @@ def main() -> None:
     if not (root / "CMakeLists.txt").is_file():
         raise SystemExit(f"Not a Vibepollo source tree: {root}")
 
+    # Install the peer-credential broker with the app formula. Machine
+    # services and privileged pool provisioning remain Cask-managed.
+    replace_once(
+        root / "third-party/libvirtualdisplay/src/driver/CMakeLists.txt",
+        """      target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
+  endif()""",
+        """      target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
+      if(SUNSHINE_BUILD_HOMEBREW)
+          install(TARGETS vibeshine_vkms_peercred RUNTIME DESTINATION libexec)
+      endif()
+  endif()""",
+    )
+
+    # The module lives outside /lib/modules; load it through our controller.
+    replace_once(
+        root / "third-party/libvirtualdisplay/linux/packaging/vibeshine-vkms",
+        """  log "loading the Vibeshine DRM HDR virtual-display module"
+  if ! modprobe "$DRM_MODULE" create_default_dev=0; then
+    error "${DRM_MODULE} is unavailable; refusing CPU-backed stock VKMS fallback"
+    return 1
+  fi""",
+        """  log "loading the Vibeshine DRM HDR virtual-display module through the Homebrew controller"
+  local controller="/var/lib/vibepollo/drm/bin/vibeshine-drmctl"
+  if [[ ! -x "$controller" ]]; then
+    error "Vibeshine DRM controller is unavailable: ${controller}"
+    return 1
+  fi
+  if ! "$controller" load; then
+    error "the signed ${DRM_MODULE} module could not be loaded; refusing CPU-backed stock VKMS fallback"
+    return 1
+  fi""",
+    )
+
     replace_once(
         root / "CMakeLists.txt",
         """if(SUNSHINE_BUILD_STEAMOS)
