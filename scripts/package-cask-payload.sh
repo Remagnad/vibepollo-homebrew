@@ -28,6 +28,10 @@ for file in vibeshine-vkms vibeshine-vkms-quiesce; do
 done
 cp "$payload_dir/install.sh" "$tmp/install.sh"
 cp "$payload_dir/uninstall.sh" "$tmp/uninstall.sh"
+# Guard the uninstall contract: a desktop-held DRM reference must defer the
+# unload safely, never force-remove a module that the compositor still uses.
+grep -Fq 'module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"' "$tmp/uninstall.sh"
+grep -Fq 'Leaving it loaded until reboot' "$tmp/uninstall.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
