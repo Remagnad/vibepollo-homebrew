@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# sudo askpass protocol: print the password to stdout, never the prompt.
+# Read from the controlling terminal so this works without X11, Wayland,
+# Qt, GTK, or a desktop-specific authentication agent.
+tty_device="/dev/tty"
+if [[ ! -r "$tty_device" || ! -w "$tty_device" ]]; then
+  printf 'vibepollo askpass: no interactive terminal is available for password entry.\n' >&2
+  exit 1
+fi
+
+prompt="${1:-[sudo] password: }"
+printf '%s' "$prompt" > "$tty_device"
+
+password=""
+if ! IFS= read -r -s password < "$tty_device"; then
+  printf '\n' > "$tty_device"
+  unset password
+  exit 1
+fi
+
+printf '\n' > "$tty_device"
+printf '%s\n' "$password"
+unset password
