@@ -54,6 +54,40 @@ for spec in "${components[@]}"; do
   fi
   cp -a "$archive_root/." "$merged_dir/"
 done
+# CUDA redist archives keep Linux libraries in the multiarch target path.
+# NVCC's built-in host link step still searches the traditional lib64 path,
+# so expose the target libraries there without copying the payload.
+target_library_dir="$merged_dir/targets/x86_64-linux/lib"
+if [[ -d "$target_library_dir" ]]; then
+  mkdir -p "$merged_dir/lib64"
+  for source_library in "$target_library_dir"/*; do
+    [[ -e "$source_library" ]] || continue
+    library_name="${source_library##*/}"
+    destination_library="$merged_dir/lib64/$library_name"
+    [[ -e "$destination_library" ]] && continue
+    source_absolute="$(realpath "$source_library")"
+    relative_source="$(realpath --relative-to="$merged_dir/lib64" "$source_absolute")"
+    ln -s "$relative_source" "$destination_library"
+  done
+fi
+
+# Fail early with a useful diagnostic if the minimal archive set does not
+# contain the static CUDA runtime pieces used by NVCC's final host/device link.
+for required_library in libcudadevrt.a libcudart_static.a; do
+  found_library="$(find "$merged_dir" -name "$required_library" -type f -print -quit)"
+  if [[ -z "$found_library" || ! -e "$found_library" ]]; then
+    echo "::error::CUDA component archives are missing $required_library." >&2
+    echo "Extracted CUDA library candidates:" >&2
+    find "$merged_dir" -type f \( -name '*cudart*' -o -name '*cudadevrt*' \) -print >&2
+    exit 1
+  fi
+  destination_library="$merged_dir/lib64/$required_library"
+  if [[ ! -e "$destination_library" ]]; then
+    relative_source="$(realpath --relative-to="$merged_dir/lib64" "$found_library")"
+    ln -s "$relative_source" "$destination_library"
+  fi
+done
+
 cuda_ld_library_path=""
 for library_dir in "$merged_dir/lib64" "$merged_dir/lib" "$merged_dir/nvvm/lib64" "$merged_dir/targets/x86_64-linux/lib"; do
   [[ ! -d "$library_dir" ]] || cuda_ld_library_path="${cuda_ld_library_path:+$cuda_ld_library_path:}$library_dir"
@@ -79,12 +113,6 @@ __global__ void smoke_kernel(int *value) {
 }
 int main() { return 0; }
 CU
-"$merged_dir/bin/nvcc" -std=c++17 -gencode arch=compute_61,code=sm_61 \
-  -c "$work_dir/cuda-smoke-test.cu" -o "$work_dir/cuda-smoke-test.o"
-"$merged_dir/bin/cuobjdump" --list-elf "$work_dir/cuda-smoke-test.o" | tee "$work_dir/cuda-smoke-test-elfs.txt"
-grep -q 'sm_61\.' "$work_dir/cuda-smoke-test-elfs.txt" || {
-  echo "::error::Minimal CUDA toolkit failed to emit Pascal sm_61 code." >&2; exit 1;
-}
 
 # Homebrew's build sandbox sanitizes parts of the environment. Keep CUDA
 # paths attached to every compiler/tool invocation instead of relying only on
@@ -113,9 +141,15 @@ WRAPPER
   chmod 0755 "$wrapper_bin/$tool_name"
 done
 
-# Validate the same wrapper path CMake and the formula will use.
-"$wrapper_bin/nvcc" --version
-"$wrapper_bin/cuobjdump" --list-elf "$work_dir/cuda-smoke-test.o" >/dev/null
+# Link a complete executable, not just an object: this exercises the exact
+# cudadevrt/cudart_static libraries NVCC and CMake need during final linking.
+"$wrapper_bin/nvcc" -std=c++17 -gencode arch=compute_61,code=sm_61 \
+  "$work_dir/cuda-smoke-test.cu" -o "$work_dir/cuda-smoke-test"
+"$wrapper_bin/cuobjdump" --list-elf "$work_dir/cuda-smoke-test" | tee "$work_dir/cuda-smoke-test-elfs.txt"
+grep -q 'sm_61\.' "$work_dir/cuda-smoke-test-elfs.txt" || {
+  echo "::error::CUDA executable smoke test is missing Pascal sm_61 device code." >&2; exit 1;
+}
+echo "CUDA compiler, runtime libraries and final host/device link passed."
 
 mkdir -p "$(dirname "$staging_dir")"
 cp -a "$merged_dir" "$staging_dir"
