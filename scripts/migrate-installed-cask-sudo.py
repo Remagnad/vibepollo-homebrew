@@ -110,8 +110,9 @@ def install_payload_scripts(version_dir: pathlib.Path, payload_scripts: dict[str
             current_mode = stat.S_IMODE(destination.stat().st_mode)
             needs_update = destination.read_bytes() != payload_scripts[name] or current_mode != mode
         backup = destination.with_name(destination.name + BACKUP_SUFFIX)
-        if needs_update and destination.exists() and (backup.exists() or backup.is_symlink()):
-            raise RuntimeError(f"Refusing to overwrite existing payload backup: {backup}")
+        if needs_update and (backup.exists() or backup.is_symlink()):
+            if backup.is_symlink() or not backup.is_file():
+                raise RuntimeError(f"Refusing an unsafe existing payload backup: {backup}")
         planned.append((destination, payload_scripts[name], mode, needs_update))
 
     # Validate every destination before changing any file, then preserve the old
@@ -119,8 +120,9 @@ def install_payload_scripts(version_dir: pathlib.Path, payload_scripts: dict[str
     for destination, content, mode, needs_update in planned:
         if not needs_update:
             continue
-        if destination.exists():
-            shutil.copy2(destination, destination.with_name(destination.name + BACKUP_SUFFIX))
+        backup = destination.with_name(destination.name + BACKUP_SUFFIX)
+        if destination.exists() and not backup.exists():
+            shutil.copy2(destination, backup)
         atomic_replace(destination, content, mode)
 
 
@@ -170,6 +172,8 @@ def validate_artifacts(artifacts: object) -> list:
     required = ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass", "uninstall.sh")
     if any(marker not in serialized for marker in required):
         raise RuntimeError("Current Homebrew uninstall step is missing sudo or the terminal askpass override")
+    if "vibepollo-original-askpass" in serialized or '"stdout_path"' in serialized:
+        raise RuntimeError("Current Homebrew uninstall metadata still contains the obsolete askpass capture step")
     return artifacts
 
 
@@ -196,6 +200,21 @@ def self_test() -> None:
     uninstall_artifacts = select_uninstall_artifacts(mixed_artifacts)
     assert uninstall_artifacts == [*artifacts, no_op_uninstall]
     assert validate_artifacts(uninstall_artifacts) == uninstall_artifacts
+    stale_artifacts = [{
+        "uninstall_preflight_steps": [{
+            "steps": [{
+                "type": "run",
+                "command": {"base": "staged_path", "path": "/usr/bin/env"},
+                "stdout_path": {"base": "staged_path", "path": "vibepollo-original-askpass"},
+            }, *artifacts[0]["uninstall_preflight_steps"][0]["steps"]],
+        }],
+    }]
+    try:
+        validate_artifacts(stale_artifacts)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("migration must reject the obsolete askpass capture step")
 
     scripts = {
         "uninstall.sh": b"#!/usr/bin/env bash\nprintf 'uninstall\\n'\n",
@@ -224,9 +243,19 @@ def self_test() -> None:
             installed = version_dir / name
             assert installed.read_bytes() == expected
             assert stat.S_IMODE(installed.stat().st_mode) == 0o755
-        # The migration is deliberately safe to rerun after a failed uninstall.
-        install_payload_scripts(version_dir, verified_scripts)
-        assert not any(version_dir.glob(f"*{BACKUP_SUFFIX}"))
+        # A retry after a partially completed migration preserves the first
+        # backup, permits refreshed contents, and never overwrites that backup.
+        first_backup_bytes = None
+        changed = dict(verified_scripts)
+        changed["uninstall.sh"] = b"#!/usr/bin/env bash\\nprintf 'revised\\\\n'\\n"
+        install_payload_scripts(version_dir, changed)
+        first_backup = version_dir / f"uninstall.sh{BACKUP_SUFFIX}"
+        first_backup_bytes = first_backup.read_bytes()
+        changed_again = dict(changed)
+        changed_again["uninstall.sh"] = b"#!/usr/bin/env bash\\nprintf 'latest\\\\n'\\n"
+        install_payload_scripts(version_dir, changed_again)
+        assert first_backup.read_bytes() == first_backup_bytes
+        assert (version_dir / "uninstall.sh").read_bytes() == changed_again["uninstall.sh"]
 
         # Refuse an unexpected symlink without partially updating the directory.
         unsafe_dir = root / "unsafe"
@@ -381,10 +410,13 @@ def main() -> int:
     for path in paths_to_backup:
         backup = path.with_name(path.name + BACKUP_SUFFIX)
         if backup.exists() or backup.is_symlink():
-            raise RuntimeError(f"Refusing to overwrite existing migration backup: {backup}")
+            if backup.is_symlink() or not backup.is_file():
+                raise RuntimeError(f"Refusing an unsafe existing migration backup: {backup}")
 
     for path in paths_to_backup:
-        shutil.copy2(path, path.with_name(path.name + BACKUP_SUFFIX))
+        backup = path.with_name(path.name + BACKUP_SUFFIX)
+        if not backup.exists():
+            shutil.copy2(path, backup)
 
     if caskfile_needs_update:
         mode = (installed_caskfile.stat().st_mode & 0o777) if installed_caskfile.suffix == ".json" else 0o644
@@ -394,7 +426,20 @@ def main() -> int:
     if receipt_needs_update:
         atomic_replace(receipt_path, receipt_bytes, receipt_path.stat().st_mode & 0o777)
 
-    print(f"Updated Homebrew's installed Cask metadata: {json_destination}", flush=True)
+    # Homebrew prioritizes the versioned installed Cask JSON when uninstalling.
+    # Verify that exact file after writing it, not just the current tap definition
+    # or INSTALL_RECEIPT.json, so a stale stdout_path step cannot survive.
+    persisted = json.loads(json_destination.read_text(encoding="utf-8"))
+    if not isinstance(persisted, dict) or persisted.get("version") != version:
+        raise RuntimeError("Installed Cask JSON did not retain the expected Vibepollo version")
+    persisted_artifacts = validate_artifacts(select_uninstall_artifacts(persisted.get("artifacts")))
+    if serialize_json(persisted_artifacts) != serialize_json(artifacts):
+        raise RuntimeError("Installed Cask JSON differs from the current Homebrew uninstall artifacts")
+    persisted_text = json.dumps(persisted_artifacts)
+    if "vibepollo-original-askpass" in persisted_text or '"stdout_path"' in persisted_text:
+        raise RuntimeError("Installed Cask JSON still contains the obsolete askpass capture path")
+
+    print(f"Verified Homebrew's installed Cask metadata: {json_destination}", flush=True)
     print(f"Updated Homebrew's uninstall receipt: {receipt_path}", flush=True)
     print("Original metadata backups were preserved.", flush=True)
     print("Continuing with Homebrew-managed privileged Cask uninstall...", flush=True)
