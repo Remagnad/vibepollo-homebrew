@@ -50,7 +50,7 @@ unit_is_active() {
   output="$(timeout --foreground --kill-after=5s 10s systemctl is-active "$unit" 2>&1)" || rc=$?
   case "$rc:$output" in
     0:active|0:activating|0:reloading|0:deactivating) return 0 ;;
-    3:inactive|3:failed|3:deactivating|4:unknown) return 1 ;;
+    3:inactive|3:failed|3:deactivating|4:inactive|4:unknown) return 1 ;;
     124:*|137:*) fail "systemd did not respond while checking $unit; no integration files were removed" ;;
     *) fail "could not safely determine the state of $unit (exit $rc): $output" ;;
   esac
