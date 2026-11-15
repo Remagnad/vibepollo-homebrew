@@ -46,20 +46,23 @@ class VibepolloDrm < Formula
     module_source = source_root/"third-party/libvirtualdisplay/linux/vibeshine-drm"
     required_sources = %w[
       Makefile
-      build-module
       vkms_drv.c
       vibeshine_drm_compat.h
       vibeshine_drm_uapi.h
+      vibeshine_drm_version.h
     ]
     odie "Pinned libvirtualdisplay Vibeshine DRM sources are missing" unless module_source.directory?
     required_sources.each do |source|
+      next if source == "vibeshine_drm_version.h" # generated below for this Formula build
+
       odie "Missing Vibeshine DRM source file: #{source}" unless (module_source/source).file?
     end
 
+    module_version = "#{version}+#{LIBVIRTUALDISPLAY_COMMIT[0, 12]}"
     module_build = buildpath/"vibeshine-drm-build"
     cp_r module_source, module_build
     (module_build/"vibeshine_drm_version.h").write(
-      "#define VIBESHINE_DRM_VERSION \"#{version}\"\n"
+      "#define VIBESHINE_DRM_VERSION \"#{module_version}\"\n"
     )
 
     make_args = []
@@ -71,11 +74,8 @@ class VibepolloDrm < Formula
       make_args << "LLVM=1"
     end
 
-    # Match the upstream build helper: Kbuild uses the running kernel's exact
-    # prepared headers and switches to LLVM mode for Clang-built kernels.
     make_tool = which("gmake") || which("make")
     odie "GNU make is required to build the kernel module" unless make_tool
-
     system make_tool, "-C", kernel_build, "M=#{module_build}", *make_args, "modules"
 
     module_file = module_build/"vibeshine_drm.ko"
@@ -87,24 +87,26 @@ class VibepolloDrm < Formula
 
     (libexec/"kernel-release").write("#{kernel_release}\n")
     (libexec/"kernel-build-dir").write("#{kernel_build}\n")
-    (libexec/"module-version").write("#{version}\n")
+    (libexec/"module-version").write("#{module_version}\n")
     (libexec/"libvirtualdisplay-commit").write("#{LIBVIRTUALDISPLAY_COMMIT}\n")
   end
 
   def caveats
     <<~EOS
       This formula builds vibeshine_drm.ko for the currently running kernel.
-      It does not sign, install, load or enable the module. The privileged
-      installation and signing lifecycle is handled by the vibepollo Cask.
-      Kernel headers/devel files matching the running kernel are required.
-      Reinstall this formula after changing kernels until DKMS integration
-      is added.
+      Its module version embeds the pinned libvirtualdisplay commit so that
+      installations from different source revisions cannot be confused.
+      It does not sign, install, load or enable the module; those privileged
+      operations are handled by the Vibepollo Cask. Matching kernel headers
+      and GNU make are required. Rebuild after changing kernels until DKMS
+      integration is added.
     EOS
   end
 
   test do
+    expected_module_version = "#{version}+#{LIBVIRTUALDISPLAY_COMMIT[0, 12]}"
     assert_path_exists libexec/"vibeshine_drm.ko"
-    assert_equal version.to_s, (libexec/"module-version").read.strip
+    assert_equal expected_module_version, (libexec/"module-version").read.strip
     assert_equal LIBVIRTUALDISPLAY_COMMIT, (libexec/"libvirtualdisplay-commit").read.strip
     assert_match(/\A[0-9A-Za-z._+-]+\z/, (libexec/"kernel-release").read.strip)
     assert_path_exists (libexec/"kernel-build-dir").read.strip

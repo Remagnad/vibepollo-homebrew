@@ -1,6 +1,6 @@
 cask "vibepollo" do
   version "2.0.6"
-  sha256 "00bfc91b058f7920307237108ffa19c5b8034c3583c9ac0af04f7f0679c735e3"
+  sha256 "0a836c0685ee2a9988d4e765d317354e9c70cf3c308cdaf075fc1fa85fb8a576"
 
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz"
   name "Vibepollo"
@@ -34,9 +34,10 @@ cask "vibepollo" do
       /var/lib/vibepollo/drm/keys/mok.key
       /var/lib/vibepollo/drm/keys/MOK.der
 
-    The private key must be unencrypted, root-owned, and mode 0600 (or 0400).
-    The DER certificate must also be root-owned. The Cask never generates
-    keys, imports certificates, or requests Secure Boot enrollment.
+    The key directory must be root-owned and mode 0700. The private key must
+    be unencrypted, root-owned, and mode 0600 (or 0400). The DER certificate
+    must also be root-owned. The Cask checks that the key pair matches; it
+    never generates keys, imports certificates, or requests enrollment.
 
     The module is signed and installed for the currently running kernel, but
     it is not loaded and no service is enabled at boot. Load it only when
@@ -44,7 +45,9 @@ cask "vibepollo" do
 
       sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl load
 
-    Close virtual displays before unloading or uninstalling the module.
-    Signing keys are preserved when the Cask is uninstalled.
+    The controller records modules it loads itself. During uninstall, it only
+    unloads a matching module that it previously loaded; if the same module
+    was loaded outside the controller, unload it manually first. Signing keys
+    are preserved when the Cask is uninstalled.
   EOS
 end
