@@ -169,7 +169,7 @@ jobs:
           {
             echo "VIBEPOLLO_CUDA_TOOLKIT_ROOT=$cuda_prefix"
             echo "CUDA_HOME=$cuda_prefix"
-            echo "PATH=$cuda_prefix/bin:$PATH"
+            echo "PATH=$cuda_prefix/homebrew/bin:$cuda_prefix/bin:$PATH"
             echo "LD_LIBRARY_PATH=$cuda_prefix/lib64:$cuda_prefix/lib:$cuda_prefix/nvvm/lib64:$cuda_prefix/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}"
           } >> "$GITHUB_ENV"
 
@@ -211,7 +211,7 @@ jobs:
           # The CUDA Toolkit is intentionally not listed in formula dependencies;
           # preserve its prefix for this source build after installing it explicitly.
           cuda_prefix="$VIBEPOLLO_CUDA_TOOLKIT_ROOT"
-          test -x "$cuda_prefix/bin/nvcc"
+          test -x "$cuda_prefix/homebrew/bin/nvcc"
           cmake_prefix="$cmake_prefix;$cuda_prefix"
           pkgconfig_path="$(printf '%s:' "${pkgconfig_paths[@]}")"
           pkgconfig_path="${pkgconfig_path%:}"
@@ -300,7 +300,7 @@ jobs:
           export COMMIT="$(jq -r '.commit' "$SOURCE_DIR/HOMEBREW-UPSTREAM.json")"
           export BUILD_VERSION
           cuda_prefix="$VIBEPOLLO_CUDA_TOOLKIT_ROOT"
-          test -x "$cuda_prefix/bin/nvcc"
+          test -x "$cuda_prefix/homebrew/bin/nvcc"
           openssl_prefix="$(brew --prefix openssl@3)"
           test -f "$openssl_prefix/include/openssl/ssl.h"
           test -f "$openssl_prefix/lib/libssl.so.3"
@@ -341,7 +341,7 @@ jobs:
             -DFFMPEG_PREPARED_BINARIES="$FFMPEG_PREPARED_BINARIES" \
             -DSUNSHINE_ENABLE_CUDA=ON \
             -DSUNSHINE_REQUIRE_CUDA_PASCAL=ON \
-            -DCMAKE_CUDA_COMPILER:PATH="$cuda_prefix/bin/nvcc" \
+            -DCMAKE_CUDA_COMPILER:PATH="$cuda_prefix/homebrew/bin/nvcc" \
             -DCMAKE_CUDA_ARCHITECTURES=61 \
             -DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH="$cuda_prefix" \
             -DCUDAToolkit_ROOT:PATH="$cuda_prefix" \

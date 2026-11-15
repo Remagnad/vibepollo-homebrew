@@ -89,8 +89,10 @@ class VibepolloApp < Formula
     # CI stages only the pinned NVIDIA build components outside the Homebrew Cellar.
     # This keeps the full multi-gigabyte CUDA Toolkit out of the dependency cache.
     cuda_prefix = HOMEBREW_CACHE/"vibepollo-cuda-12.9.1"
-    cuda_nvcc = cuda_prefix/"bin/nvcc"
-    cuda_cuobjdump = cuda_prefix/"bin/cuobjdump"
+    # Use launch wrappers so nvcc and its helper binaries always receive
+    # CUDA_HOME, PATH and LD_LIBRARY_PATH inside Homebrew's build sandbox.
+    cuda_nvcc = cuda_prefix/"homebrew/bin/nvcc"
+    cuda_cuobjdump = cuda_prefix/"homebrew/bin/cuobjdump"
     odie "Pinned CUDA nvcc is missing: #{cuda_nvcc}" unless cuda_nvcc.executable?
     odie "Pinned CUDA cuobjdump is missing: #{cuda_cuobjdump}" unless cuda_cuobjdump.executable?
     cuda_library_paths = [
@@ -101,7 +103,7 @@ class VibepolloApp < Formula
     ].select(&:directory?).map(&:to_s)
     ENV["CUDA_HOME"] = cuda_prefix.to_s
     ENV["CUDA_PATH"] = cuda_prefix.to_s
-    ENV["PATH"] = "#{cuda_prefix}/bin:#{ENV["PATH"]}"
+    ENV["PATH"] = "#{cuda_prefix}/homebrew/bin:#{cuda_prefix}/bin:#{ENV["PATH"]}"
     ENV["LD_LIBRARY_PATH"] = (
       cuda_library_paths + ENV["LD_LIBRARY_PATH"].to_s.split(":").reject(&:empty?)
     ).uniq.join(":")
@@ -153,12 +155,21 @@ class VibepolloApp < Formula
         system "cmake", "--build", cuda_preflight_build, "--parallel", "2"
       rescue StandardError
         configure_log = cuda_preflight_build/"CMakeFiles/CMakeConfigureLog.yaml"
-        if configure_log.file?
-          puts "CUDA CMake preflight configure log (last 160 lines):"
-          puts configure_log.read.lines.last(160).join
+        error_log = cuda_preflight_build/"CMakeFiles/CMakeError.log"
+        [configure_log, error_log].each do |log|
+          next unless log.file?
+
+          puts "CUDA CMake preflight diagnostic: #{log}"
+          puts log.read.lines.last(240).join
         end
+        homebrew_cmake_log = HOMEBREW_CACHE/"Logs/vibepollo-app/02.cmake.log"
+        if homebrew_cmake_log.file?
+          puts "Homebrew CMake invocation log (last 240 lines):"
+          puts homebrew_cmake_log.read.lines.last(240).join
+        end
+        puts "CUDA CMake preflight directory retained at: #{cuda_preflight_dir}"
         raise
-      ensure
+      else
         cuda_preflight_dir.rmtree if cuda_preflight_dir.directory?
       end
 

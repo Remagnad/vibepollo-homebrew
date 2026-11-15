@@ -85,6 +85,38 @@ CU
 grep -q 'sm_61\.' "$work_dir/cuda-smoke-test-elfs.txt" || {
   echo "::error::Minimal CUDA toolkit failed to emit Pascal sm_61 code." >&2; exit 1;
 }
+
+# Homebrew's build sandbox sanitizes parts of the environment. Keep CUDA
+# paths attached to every compiler/tool invocation instead of relying only on
+# variables exported by the parent formula process.
+wrapper_bin="$merged_dir/homebrew/bin"
+mkdir -p "$wrapper_bin"
+for tool in "$merged_dir"/bin/*; do
+  [[ -f "$tool" && -x "$tool" ]] || continue
+  tool_name="${tool##*/}"
+  cat > "$wrapper_bin/$tool_name" <<'WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+wrapper_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+cuda_root="$(cd -- "$wrapper_dir/../.." && pwd -P)"
+export CUDA_HOME="$cuda_root"
+export CUDA_PATH="$cuda_root"
+export PATH="$wrapper_dir:$cuda_root/bin:$PATH"
+library_paths=()
+for library_dir in "$cuda_root/lib64" "$cuda_root/lib" "$cuda_root/nvvm/lib64" "$cuda_root/targets/x86_64-linux/lib"; do
+  [[ ! -d "$library_dir" ]] || library_paths+=("$library_dir")
+done
+joined_library_paths="$(IFS=:; echo "${library_paths[*]}")"
+export LD_LIBRARY_PATH="$joined_library_paths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$cuda_root/bin/${0##*/}" "$@"
+WRAPPER
+  chmod 0755 "$wrapper_bin/$tool_name"
+done
+
+# Validate the same wrapper path CMake and the formula will use.
+"$wrapper_bin/nvcc" --version
+"$wrapper_bin/cuobjdump" --list-elf "$work_dir/cuda-smoke-test.o" >/dev/null
+
 mkdir -p "$(dirname "$staging_dir")"
 cp -a "$merged_dir" "$staging_dir"
 rm -rf "$destination"
