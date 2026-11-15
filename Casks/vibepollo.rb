@@ -29,7 +29,7 @@ cask "vibepollo" do
   uninstall_preflight_steps do
     # Keep sudo authentication inside Homebrew while using the invoking
     # terminal instead of an inherited graphical SUDO_ASKPASS program.
-    run "uninstall.sh",
+    run "#{staged_path}/uninstall.sh",
         sudo: true,
         env:  { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
   end
