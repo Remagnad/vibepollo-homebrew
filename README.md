@@ -42,6 +42,14 @@ sudo install -o root -g root -m 0600 ~/Projects/Vibepollo/keys/MOK.priv /var/lib
 sudo install -o root -g root -m 0644 ~/Projects/Vibepollo/keys/MOK.der /var/lib/vibepollo/drm/keys/MOK.der
 \`\`\`
 
+Existing installs created by the older graphical-askpass Cask need a one-time receipt migration. After \`brew update\`, run this as your normal desktop user (not through \`sudo\`):
+
+\`\`\`bash
+python3 "$(brew --repo Remagnad/vibepollo-homebrew)/scripts/migrate-installed-cask-sudo.py"
+\`\`\`
+
+The migration verifies the published Cask archive against the current tap SHA-256, replaces the installed uninstaller, removes only the obsolete \`sudo: true\` flag from Homebrew's installed uninstall receipt, backs up that receipt, and then completes the normal Cask uninstall. Fresh installations do not need this migration.
+
 Install the DRM Formula from source before installing the Cask:
 
 \`\`\`bash
