@@ -73,7 +73,9 @@ class VibepolloDrm < Formula
                           sizeof(vibeshine_drmctl_token), 0444);
       MODULE_PARM_DESC(vibeshine_drmctl_token, "Vibeshine DRM controller load token");
     C
-    driver_source.write(driver_content.sub(driver_marker, "#{load_token_parameter}\n#{driver_marker}"))
+    inreplace driver_source do |source|
+      source.gsub!(driver_marker, "#{load_token_parameter}\n#{driver_marker}")
+    end
     (module_build/"vibeshine_drm_version.h").write(
       "#define VIBESHINE_DRM_VERSION \"#{module_version}\"\n",
     )
