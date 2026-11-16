@@ -39,6 +39,11 @@ grep -Fq 'Leaving it loaded until reboot' "$tmp/uninstall.sh"
 grep -Fq 'semanage fcontext -a -f f -t bin_t' "$tmp/install.sh"
 grep -Fq 'selinux_fcontext_owned=%s' "$tmp/install.sh"
 grep -Fq 'remove_owned_selinux_fcontext' "$tmp/uninstall.sh"
+# Keep the broker endpoint compatible with Vibepollo's root-owned socket check.
+grep -Fq 'SocketUser=root' "$integration_dir/vibeshine-vkms-control.socket"
+grep -Fq 'SocketGroup=@VIBESHINE_SOCKET_GROUP@' "$integration_dir/vibeshine-vkms-control.socket"
+grep -Fq 'SocketMode=0660' "$integration_dir/vibeshine-vkms-control.socket"
+grep -Fq 'SOCKET_GROUP="$(id -gn "$SOCKET_USER")"' "$tmp/install.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
