@@ -14,13 +14,25 @@ cask "vibepollo" do
   ]
   depends_on :linux
 
+  # Run the privileged installer as a Homebrew-managed install step.
+  # This gives sudo the same terminal-backed askpass helper used at uninstall,
+  # instead of asking install.sh to invoke sudo from inside the Cask runner.
+  preflight_steps do
+    run "install.sh",
+        base: :staged_path,
+        args: [
+          "{{HOMEBREW_PREFIX}}/opt/vibepollo-drm",
+          "{{HOMEBREW_PREFIX}}/opt/vibepollo-app",
+          "{{staged_path}}",
+        ],
+        sudo: true,
+        env: { "SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass" }
+  end
+
+  # The privileged work is complete in preflight_steps; this verifies its
+  # root-owned state marker and satisfies the installer/uninstaller pairing.
   installer script: {
-    executable: "#{staged_path}/install.sh",
-    args:       [
-      "#{HOMEBREW_PREFIX}/opt/vibepollo-drm",
-      "#{HOMEBREW_PREFIX}/opt/vibepollo-app",
-      staged_path,
-    ],
+    executable: "#{staged_path}/install-complete.sh",
   }
 
   # Run the privileged uninstaller through Homebrew's install-step runner.
