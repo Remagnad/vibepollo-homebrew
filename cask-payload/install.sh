@@ -265,7 +265,7 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
 fi
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
-printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\n' \\
+printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\n' \
   "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
