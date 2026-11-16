@@ -64,7 +64,9 @@ cask "vibepollo" do
     The module is signed and installed for the currently running kernel.
     The pool units and broker are installed, but neither service is started
     nor enabled at boot. The control socket is restricted to the desktop user
-    who invoked the Cask installer. Start the pool only when needed with:
+    who invoked the Cask installer, through that user's private primary
+    group while keeping the socket itself root-owned. Start the pool only
+    when needed with:
 
       sudo systemctl start vibeshine-vkms.service
 
