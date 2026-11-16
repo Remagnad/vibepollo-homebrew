@@ -15,6 +15,7 @@ class VibepolloApp < Formula
   depends_on "cmake" => :build
   depends_on "jinja2-cli" => :build
   depends_on "mold" => :build
+  depends_on "patchelf" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
@@ -270,6 +271,14 @@ class VibepolloApp < Formula
       peercred_binary = buildpath/"build/third-party/libvirtualdisplay/src/driver/vibeshine-vkms-peercred"
       system "cmake", "--build", buildpath/"build", "--target", "vibeshine_vkms_peercred", "--parallel", "2"
       odie "libvirtualdisplay did not build vibeshine-vkms-peercred" unless peercred_binary.executable?
+
+      # The Cask runs this broker with ProtectHome=yes. Its ELF interpreter must
+      # therefore be the host loader, not Homebrew's loader under the user's home.
+      host_dynamic_linker = "/lib64/ld-linux-x86-64.so.2"
+      odie "Host glibc dynamic linker is missing: #{host_dynamic_linker}" unless File.file?(host_dynamic_linker)
+      system "patchelf", "--set-interpreter", host_dynamic_linker, peercred_binary
+      actual_dynamic_linker = Utils.safe_popen_read("patchelf", "--print-interpreter", peercred_binary).strip
+      odie "Unexpected peer-credential broker interpreter: #{actual_dynamic_linker}" unless actual_dynamic_linker == host_dynamic_linker
       libexec.mkpath
       cp peercred_binary, libexec/"vibeshine-vkms-peercred"
       chmod 0755, libexec/"vibeshine-vkms-peercred"
@@ -314,6 +323,7 @@ class VibepolloApp < Formula
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
+    assert_includes File.binread(libexec/"vibeshine-vkms-peercred"), "/lib64/ld-linux-x86-64.so.2\0"
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
