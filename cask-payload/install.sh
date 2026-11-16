@@ -10,6 +10,11 @@ MODULES_DIR="$DRM_ROOT/modules"
 BIN_DIR="$DRM_ROOT/bin"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred)"
+SELINUX_ACTIVE=0
+SELINUX_RULE_OWNED=0
+SELINUX_RULE_ADDED=0
+SELINUX_STATE_COMMITTED=0
 
 fail() { printf 'vibepollo Cask installer: error: %s\n' "$*" >&2; exit 1; }
 require_root_directory() {
@@ -34,6 +39,27 @@ state_value() {
 for command_name in stat sha256sum awk modinfo openssl install mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
+
+# systemd starts these helpers from init_t. bin_t is the standard SELinux
+# executable type for custom system services without a dedicated policy.
+SELINUX_MODE=""
+if command -v getenforce >/dev/null 2>&1; then
+  SELINUX_MODE="$(getenforce)"
+elif [[ -r /sys/fs/selinux/enforce ]]; then
+  if [[ "$(cat /sys/fs/selinux/enforce)" == "1" ]]; then SELINUX_MODE="Enforcing"; else SELINUX_MODE="Permissive"; fi
+fi
+case "$SELINUX_MODE" in
+  Enforcing|Permissive)
+    SELINUX_ACTIVE=1
+    command -v semanage >/dev/null 2>&1 || fail "semanage is required for persistent SELinux labels (install policycoreutils-python-utils)"
+    command -v restorecon >/dev/null 2>&1 || fail "restorecon is required to apply SELinux labels"
+    ;;
+  Disabled|"") ;;
+  *) fail "could not determine SELinux mode: $SELINUX_MODE" ;;
+esac
+PRIOR_SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
+[[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_RULE_OWNED=0
+SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
 FORMULA_PREFIX="$1"
 APP_PREFIX="$2"
 STAGED_DIR="$3"
@@ -171,7 +197,13 @@ case "$SIGN_HASH" in
 esac
 
 TMP_DIR="$(mktemp -d /var/tmp/vibepollo-drm-sign.XXXXXX)"
-cleanup() { rm -rf -- "$TMP_DIR"; }
+cleanup() {
+  rm -rf -- "$TMP_DIR"
+  if [[ "$SELINUX_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
+    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred >/dev/null 2>&1 || true
+  fi
+}
 trap cleanup EXIT HUP INT TERM
 cp -- "$MODULE_FILE" "$TMP_DIR/vibeshine_drm.ko"
 "$SIGN_FILE" "$SIGN_HASH" "$PRIVATE_KEY" "$CERTIFICATE" "$TMP_DIR/vibeshine_drm.ko"
@@ -213,9 +245,28 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
 done
 systemctl daemon-reload
 
+if [[ "$SELINUX_ACTIVE" == "1" ]]; then
+  existing_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  if [[ -n "$existing_selinux_context" ]]; then
+    IFS=: read -r _ _ existing_selinux_type _ <<< "$existing_selinux_context"
+    [[ "$existing_selinux_type" == "bin_t" ]] || fail "an existing SELinux rule assigns the Vibeshine helpers to $existing_selinux_type instead of bin_t; refusing to overwrite it"
+    SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
+  else
+    semanage fcontext -a -f f -t bin_t "$SELINUX_FCONTEXT_SPEC" || fail "could not add the persistent SELinux bin_t rule for Vibeshine helpers"
+    SELINUX_RULE_ADDED=1
+    SELINUX_RULE_OWNED=1
+  fi
+  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+    restorecon -F "$BIN_DIR/$helper" || fail "could not apply the SELinux executable label to $BIN_DIR/$helper"
+    helper_context="$(stat -c '%C' "$BIN_DIR/$helper")"
+    IFS=: read -r _ _ helper_type _ <<< "$helper_context"
+    [[ "$helper_type" == "bin_t" ]] || fail "SELinux did not label $BIN_DIR/$helper as bin_t (actual context: $helper_context)"
+  done
+fi
+
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
-printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\n' \
-  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" > "$STATE_TMP"
+printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\n' \\
+  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
@@ -227,6 +278,7 @@ for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-v
   printf 'helper_%s_sha256=%s\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
 done
 chmod 0644 "$STATE_FILE"
+SELINUX_STATE_COMMITTED=1
 
 if command -v mokutil >/dev/null 2>&1; then
   if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
