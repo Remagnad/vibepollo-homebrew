@@ -7,6 +7,9 @@ fail() { printf 'vibepollo Cask uninstaller: error: %s\n' "$*" >&2; exit 1; }
 DRM_ROOT="/var/lib/vibepollo/drm"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
+BIN_DIR="$DRM_ROOT/bin"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred)"
+SELINUX_RULE_OWNED=0
 MODULE_NAME="vibeshine_drm"
 STATE_TRUSTED=0
 MODULE_UNVERIFIED_LOADED=0
@@ -22,6 +25,24 @@ state_value() {
   local key="$1"
   [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || return 0
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$STATE_FILE"
+}
+remove_owned_selinux_fcontext() {
+  [[ "$SELINUX_RULE_OWNED" == "1" ]] || return 0
+  for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+    helper="$BIN_DIR/$helper_name"
+    [[ ! -e "$helper" && ! -L "$helper" ]] || fail "cannot remove the Cask-owned SELinux rule while helper remains: $helper"
+  done
+  command -v semanage >/dev/null 2>&1 || fail "semanage is required to remove the Cask-owned SELinux file-context rule"
+  existing_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  if [[ -n "$existing_context" ]]; then
+    IFS=: read -r _ _ existing_type _ <<< "$existing_context"
+    [[ "$existing_type" == "bin_t" ]] || fail "the SELinux rule for Vibeshine helpers was changed outside this Cask; preserving it"
+    semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" || fail "could not remove the Cask-owned SELinux file-context rule"
+    log "removed the Cask-owned SELinux executable-label rule"
+  else
+    log "the Cask-owned SELinux executable-label rule is already absent"
+  fi
+  SELINUX_RULE_OWNED=0
 }
 systemctl_bounded() {
   local limit="$1" description="$2" rc=0
@@ -62,6 +83,8 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
   state_mode="$(stat -c '%a' "$STATE_FILE")"
   (( (8#$state_mode & 0022) == 0 )) || fail "installation state must not be writable by group or others"
   STATE_TRUSTED=1
+  SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
+  [[ "$SELINUX_RULE_OWNED" == "1" ]] || SELINUX_RULE_OWNED=0
 fi
 
 # Stop the optional pool before touching its helpers or the DRM module.
@@ -190,6 +213,7 @@ for directory in bin state; do
       done
       ;;
     state)
+      remove_owned_selinux_fcontext
       [[ ! -L "$STATE_FILE" ]] || fail "refusing symbolic-link state file"
       rm -f -- "$STATE_FILE"
       ;;
