@@ -43,6 +43,7 @@ grep -Fq 'remove_owned_selinux_fcontext' "$tmp/uninstall.sh"
 grep -Fq 'SocketUser=root' "$integration_dir/vibeshine-vkms-control.socket"
 grep -Fq 'SocketGroup=@VIBESHINE_SOCKET_GROUP@' "$integration_dir/vibeshine-vkms-control.socket"
 grep -Fq 'SocketMode=0660' "$integration_dir/vibeshine-vkms-control.socket"
+grep -Fq 'ExecStart=/lib64/ld-linux-x86-64.so.2 /var/lib/vibepollo/drm/bin/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control' "$integration_dir/vibeshine-vkms-control@.service"
 grep -Fq 'SOCKET_GROUP="$(id -gn "$SOCKET_USER")"' "$tmp/install.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
