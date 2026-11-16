@@ -94,7 +94,7 @@ jobs:
           import sys
 
           version, digest, filename = sys.argv[1:]
-          if not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version):
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
               raise SystemExit("Invalid Cask version")
           if not re.fullmatch(r"[0-9a-f]{64}", digest):
               raise SystemExit("Invalid Cask payload SHA-256")
