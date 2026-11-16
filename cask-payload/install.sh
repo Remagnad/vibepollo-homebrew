@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Homebrew's sudo:true runner forces sudo -A and a graphical askpass helper.
-# Escalate here instead so sudo reads the password from the invoking terminal.
-if [[ "$EUID" -ne 0 ]]; then
-  command -v sudo >/dev/null 2>&1 || {
-    printf 'vibepollo Cask installer: error: sudo is required for the privileged installation.\n' >&2
-    exit 1
-  }
-  exec sudo -- "$0" "$@"
-fi
-
 umask 077
 DRM_ROOT="/var/lib/vibepollo/drm"
 KEY_DIR="$DRM_ROOT/keys"
@@ -39,7 +29,7 @@ state_value() {
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$STATE_FILE"
 }
 
-[[ "$EUID" -eq 0 ]] || fail "this installer must run with root privileges"
+[[ "$EUID" -eq 0 ]] || fail "Homebrew must run this installer with sudo: true"
 [[ "$#" -eq 3 ]] || fail "expected DRM Formula prefix, app Formula prefix and staged payload directory"
 for command_name in stat sha256sum awk modinfo openssl install mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
