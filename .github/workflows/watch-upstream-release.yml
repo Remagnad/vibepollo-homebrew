@@ -585,6 +585,10 @@ jobs:
             --output "$RUNNER_TEMP/test-vibepollo-app.rb"
           grep -F 'sha256 x86_64_linux: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
             "$RUNNER_TEMP/test-vibepollo-app.rb"
+          grep -F 'assert_path_exists libexec/"vibeshine-vkms-peercred"' \
+            "$RUNNER_TEMP/test-vibepollo-app.rb"
+          grep -F 'assert_predicate libexec/"vibeshine-vkms-peercred", :executable?' \
+            "$RUNNER_TEMP/test-vibepollo-app.rb"
 
       - name: Create Linux x86_64 bottle metadata
         run: |
