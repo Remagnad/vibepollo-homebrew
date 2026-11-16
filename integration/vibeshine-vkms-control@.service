@@ -6,9 +6,9 @@ After=vibeshine-vkms.service
 [Service]
 Type=exec
 User=root
-# Homebrew bottles may set PT_INTERP to a private loader under /home/linuxbrew.
-# Invoke the host loader directly so ProtectHome=yes can remain enabled.
-ExecStart=/lib64/ld-linux-x86-64.so.2 /var/lib/vibepollo/drm/bin/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control
+# The app Formula sets this helper's PT_INTERP to the host loader before staging it.
+# Execute the bin_t helper directly; do not exec the ld_so_t loader as the service.
+ExecStart=/var/lib/vibepollo/drm/bin/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
