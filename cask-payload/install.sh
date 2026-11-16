@@ -80,8 +80,23 @@ command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
 command -v getent >/dev/null 2>&1 || fail "getent is required"
 SOCKET_USER="${SUDO_USER:-}"
 [[ -n "$SOCKET_USER" && "$SOCKET_USER" != root ]] || fail "install from your normal desktop user with sudo; SUDO_USER is required"
-[[ "$SOCKET_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || fail "the invoking account name contains unsupported characters for a systemd socket user"
+[[ "$SOCKET_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || fail "the invoking account name contains unsupported characters"
 getent passwd "$SOCKET_USER" >/dev/null || fail "could not resolve invoking user: $SOCKET_USER"
+command -v id >/dev/null 2>&1 || fail "id is required to resolve the desktop user's private primary group"
+SOCKET_GROUP="$(id -gn "$SOCKET_USER")"
+SOCKET_GID="$(id -g "$SOCKET_USER")"
+[[ "$SOCKET_GROUP" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || fail "the desktop user's primary group name is not valid for a systemd socket"
+GROUP_ENTRY="$(getent group "$SOCKET_GROUP" || true)"
+[[ -n "$GROUP_ENTRY" ]] || fail "could not resolve the desktop user's primary group: $SOCKET_GROUP"
+IFS=: read -r _ _ RESOLVED_SOCKET_GID GROUP_MEMBERS <<< "$GROUP_ENTRY"
+[[ "$RESOLVED_SOCKET_GID" == "$SOCKET_GID" ]] || fail "the resolved primary group does not match the invoking user's primary GID"
+OTHER_PRIMARY_USERS="$(getent passwd | awk -F: -v gid="$SOCKET_GID" -v user="$SOCKET_USER" '$4 == gid && $1 != user { print $1 }')"
+[[ -z "$OTHER_PRIMARY_USERS" ]] || fail "the desktop user's primary group is shared with other accounts ($OTHER_PRIMARY_USERS); refusing to expose the broker to them"
+IFS=, read -r -a GROUP_MEMBER_LIST <<< "${GROUP_MEMBERS:-}"
+for group_member in "${GROUP_MEMBER_LIST[@]}"; do
+  [[ -z "$group_member" || "$group_member" == "$SOCKET_USER" ]] ||
+    fail "the desktop user's primary group has additional members ($group_member); refusing to expose the broker to them"
+done
 if systemctl is-active --quiet vibeshine-vkms.service || systemctl is-active --quiet vibeshine-vkms-control.socket; then
   fail "stop the Vibeshine pool and control socket before upgrading the Cask"
 fi
@@ -235,7 +250,7 @@ install -d -o root -g root -m 0755 "$UNIT_DIR"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   [[ ! -L "$UNIT_DIR/$unit" ]] || fail "refusing symbolic-link systemd unit: $UNIT_DIR/$unit"
 done
-sed "s/@VIBESHINE_SOCKET_USER@/$SOCKET_USER/g" "$STAGED_DIR/vibeshine-vkms-control.socket" > "$TMP_DIR/vibeshine-vkms-control.socket"
+sed "s/@VIBESHINE_SOCKET_GROUP@/$SOCKET_GROUP/g" "$STAGED_DIR/vibeshine-vkms-control.socket" > "$TMP_DIR/vibeshine-vkms-control.socket"
 for unit in vibeshine-vkms.service vibeshine-vkms-control@.service; do
   install -o root -g root -m 0644 "$STAGED_DIR/$unit" "$UNIT_DIR/$unit.new"
 done
@@ -270,7 +285,7 @@ printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtual
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
-printf 'socket_user=%s\n' "$SOCKET_USER" >> "$STATE_FILE"
+printf 'socket_group=%s\n' "$SOCKET_GROUP" >> "$STATE_FILE"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
 done
