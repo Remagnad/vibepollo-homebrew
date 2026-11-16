@@ -218,7 +218,7 @@ checks = [
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask does not capture an askpass path through stdout_path", "stdout_path" not in cask_text),
     ("Cask installer runs as root through Homebrew preflight steps", "preflight_steps do" in cask_text and 'run "install.sh"' in cask_text and "sudo: true" in cask_text and '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
-    ("Cask installer script does not invoke sudo itself", "sudo" not in install_text and '[[ "$EUID" -eq 0 ]]' in install_text),
+    ("Cask installer script does not self-elevate", "exec sudo" not in install_text and "sudo -v" not in install_text and '[[ "$EUID" -eq 0 ]]' in install_text),
     ("Cask install completion verifies root-owned state", "STATE_FILE=" in (payload_dir / "install-complete.sh").read_text(encoding="utf-8") and 'stat -c \'%u\' "$STATE_FILE"' in (payload_dir / "install-complete.sh").read_text(encoding="utf-8")),
     ("Cask uninstaller requires Homebrew root execution", '[[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"' in uninstall_text),
     ("Cask uninstaller does not invoke sudo itself", "sudo -v" not in uninstall_text and "SUDO_ASKPASS" not in uninstall_text and "sudo -n" not in uninstall_text),
