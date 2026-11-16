@@ -35,6 +35,10 @@ cp "$payload_dir/vibepollo-askpass" "$tmp/vibepollo-askpass"
 # unload safely, never force-remove a module that the compositor still uses.
 grep -Fq 'module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"' "$tmp/uninstall.sh"
 grep -Fq 'Leaving it loaded until reboot' "$tmp/uninstall.sh"
+# Keep SELinux executable labeling persistent and owned by the Cask lifecycle.
+grep -Fq 'semanage fcontext -a -f f -t bin_t' "$tmp/install.sh"
+grep -Fq 'selinux_fcontext_owned=%s' "$tmp/install.sh"
+grep -Fq 'remove_owned_selinux_fcontext' "$tmp/uninstall.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
