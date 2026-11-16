@@ -7,7 +7,7 @@ class VibepolloApp < Formula
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "937290d4ade9d7ff593d42b8343449d3a9074c5f0d8e6bb4d965d582622dfcbf"
+    sha256 x86_64_linux: "d3dd4b128553d3b20b8d86752dca66ef12d0e8db8668bcba0be17a726b7eca44"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -21,7 +21,6 @@ class VibepolloApp < Formula
   # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
   # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "node" => :build
-  depends_on "patchelf" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
@@ -272,17 +271,6 @@ class VibepolloApp < Formula
       system "cmake", "--build", buildpath/"build", "--target", "vibeshine_vkms_peercred", "--parallel", "2"
       odie "libvirtualdisplay did not build vibeshine-vkms-peercred" unless peercred_binary.executable?
 
-      # Homebrew's linker points PT_INTERP at its private loader under /home.
-      # The Cask runs this helper with ProtectHome=yes, so give it the host
-      # loader as its ELF interpreter before copying it into /var/lib.
-      host_dynamic_loader = Pathname.new("/lib64/ld-linux-x86-64.so.2")
-      odie "The host x86_64 ELF dynamic loader is missing: #{host_dynamic_loader}" unless host_dynamic_loader.file?
-      system "patchelf", "--set-interpreter", host_dynamic_loader.to_s, peercred_binary
-      peercred_interpreter = Utils.safe_popen_read(
-        "patchelf", "--print-interpreter", peercred_binary
-      ).strip
-      odie "Could not set the peercred host ELF interpreter" unless peercred_interpreter == host_dynamic_loader.to_s
-
       libexec.mkpath
       cp peercred_binary, libexec/"vibeshine-vkms-peercred"
       chmod 0755, libexec/"vibeshine-vkms-peercred"
@@ -327,12 +315,16 @@ class VibepolloApp < Formula
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
-    # The helper is staged in /var/lib and must use a host-visible ELF loader.
-    # Execute it directly, just as the systemd socket-activation unit does.
-    peercred_output = shell_output(
-      "#{libexec}/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control 2>&1", 1
-    )
-    assert_match "standard input is not a socket", peercred_output
+    # Homebrew can relocate PT_INTERP to its private loader under /home.
+    # Verify the Cask service can run the helper through the host loader instead.
+    peercred_command = [
+      "/lib64/ld-linux-x86-64.so.2",
+      "#{libexec}/vibeshine-vkms-peercred",
+      "/var/lib/vibepollo/drm/bin/vibeshine-vkms",
+      "control",
+    ].join(" ")
+    peercred_loader_output = shell_output("#{peercred_command} 2>&1", 1)
+    assert_match "standard input is not a socket", peercred_loader_output
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
