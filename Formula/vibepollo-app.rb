@@ -317,12 +317,14 @@ class VibepolloApp < Formula
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
     # Homebrew can relocate PT_INTERP to its private loader under /home.
     # Verify the Cask service can run the helper through the host loader instead.
-    peercred_loader_output = shell_output(
-      "/lib64/ld-linux-x86-64.so.2 #{libexec}/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control 2>&1",
-      1
-    )
+    peercred_command = [
+      "/lib64/ld-linux-x86-64.so.2",
+      "#{libexec}/vibeshine-vkms-peercred",
+      "/var/lib/vibepollo/drm/bin/vibeshine-vkms",
+      "control",
+    ].join(" ")
+    peercred_loader_output = shell_output("#{peercred_command} 2>&1", 1)
     assert_match "standard input is not a socket", peercred_loader_output
-
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
