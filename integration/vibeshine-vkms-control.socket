@@ -4,8 +4,11 @@ PartOf=vibeshine-vkms.service
 
 [Socket]
 ListenStream=/run/vibeshine/vkms-control.sock
-SocketUser=@VIBESHINE_SOCKET_USER@
-SocketMode=0600
+# Vibepollo validates this endpoint as root-owned before using it.
+# Limit access to the installing desktop user's private primary group.
+SocketUser=root
+SocketGroup=@VIBESHINE_SOCKET_GROUP@
+SocketMode=0660
 DirectoryMode=0755
 Accept=yes
 RemoveOnStop=yes
