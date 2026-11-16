@@ -333,7 +333,7 @@ __BOTTLE_BLOCK__
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
-    assert_includes File.binread(libexec/"vibeshine-vkms-peercred"), "/lib64/ld-linux-x86-64.so.2\0"
+    assert_equal "/lib64/ld-linux-x86-64.so.2", Utils.safe_popen_read("patchelf", "--print-interpreter", libexec/"vibeshine-vkms-peercred").strip
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
