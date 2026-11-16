@@ -29,7 +29,6 @@ __BOTTLE_BLOCK__
   # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
   # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "mold" => :build
-  depends_on "patchelf" => :build
   depends_on "node" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
@@ -261,6 +260,23 @@ __BOTTLE_BLOCK__
         ]
       end
 
+      # The Cask starts this helper from a systemd unit with ProtectHome=yes.
+      # Set PT_INTERP at link time so the ELF never depends on Homebrew's loader
+      # under /home/linuxbrew (and bottle relocation has no Homebrew path to restore).
+      peercred_cmake = buildpath/"third-party/libvirtualdisplay/src/driver/CMakeLists.txt"
+      odie "Pinned libvirtualdisplay peercred CMake target is missing" unless peercred_cmake.file?
+      peercred_cmake_anchor = "    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)\n"
+      unless peercred_cmake.read.scan(peercred_cmake_anchor).length == 1
+        odie "Pinned libvirtualdisplay peercred CMake target no longer matches the expected link configuration"
+      end
+      inreplace peercred_cmake do |s|
+        s.gsub!(peercred_cmake_anchor, <<~CMAKE)
+          #{peercred_cmake_anchor.chomp}
+              target_link_options(vibeshine_vkms_peercred PRIVATE
+                      "-Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2")
+        CMAKE
+      end
+
       begin
         system "cmake", "-S", buildpath, "-B", buildpath/"build", *cmake_args
       rescue StandardError
@@ -281,13 +297,6 @@ __BOTTLE_BLOCK__
       system "cmake", "--build", buildpath/"build", "--target", "vibeshine_vkms_peercred", "--parallel", "2"
       odie "libvirtualdisplay did not build vibeshine-vkms-peercred" unless peercred_binary.executable?
 
-      # The Cask runs this broker with ProtectHome=yes. Its ELF interpreter must
-      # therefore be the host loader, not Homebrew's loader under the user's home.
-      host_dynamic_linker = "/lib64/ld-linux-x86-64.so.2"
-      odie "Host glibc dynamic linker is missing: #{host_dynamic_linker}" unless File.file?(host_dynamic_linker)
-      system "patchelf", "--set-interpreter", host_dynamic_linker, peercred_binary
-      actual_dynamic_linker = Utils.safe_popen_read("patchelf", "--print-interpreter", peercred_binary).strip
-      odie "Unexpected peer-credential broker interpreter: #{actual_dynamic_linker}" unless actual_dynamic_linker == host_dynamic_linker
       libexec.mkpath
       cp peercred_binary, libexec/"vibeshine-vkms-peercred"
       chmod 0755, libexec/"vibeshine-vkms-peercred"
@@ -333,7 +342,28 @@ __BOTTLE_BLOCK__
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
-    assert_equal "/lib64/ld-linux-x86-64.so.2", Utils.safe_popen_read("patchelf", "--print-interpreter", libexec/"vibeshine-vkms-peercred").strip
+    # Parse the ELF program headers directly; no external ELF utility is required.
+    peercred_elf = File.binread(libexec/"vibeshine-vkms-peercred")
+    assert_equal "\x7FELF".b, peercred_elf.byteslice(0, 4)
+    assert_equal 2, peercred_elf.getbyte(4) # ELFCLASS64
+    assert_equal 1, peercred_elf.getbyte(5) # ELFDATA2LSB
+    program_header_offset = peercred_elf.byteslice(32, 8).unpack1("Q<")
+    program_header_size = peercred_elf.byteslice(54, 2).unpack1("v")
+    program_header_count = peercred_elf.byteslice(56, 2).unpack1("v")
+    assert_equal 56, program_header_size
+    interpreter = nil
+    program_header_count.times do |index|
+      header = peercred_elf.byteslice(program_header_offset + index * program_header_size,
+                                      program_header_size)
+      next unless header.byteslice(0, 4).unpack1("V") == 3 # PT_INTERP
+
+      interpreter_offset = header.byteslice(8, 8).unpack1("Q<")
+      interpreter_size = header.byteslice(32, 8).unpack1("Q<")
+      interpreter = peercred_elf.byteslice(interpreter_offset, interpreter_size).delete_suffix("\0")
+      break
+    end
+    assert_equal "/lib64/ld-linux-x86-64.so.2", interpreter
+
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
