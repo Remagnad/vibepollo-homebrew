@@ -264,6 +264,16 @@ class VibepolloApp < Formula
       system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
 
+      # The Cask copies this peer-credential broker into its privileged runtime
+      # directory. Stage it explicitly so the application bottle always carries
+      # the executable expected by the Cask installer.
+      peercred_binary = buildpath/"build/third-party/libvirtualdisplay/src/driver/vibeshine-vkms-peercred"
+      system "cmake", "--build", buildpath/"build", "--target", "vibeshine_vkms_peercred", "--parallel", "2"
+      odie "libvirtualdisplay did not build vibeshine-vkms-peercred" unless peercred_binary.executable?
+      libexec.mkpath
+      cp peercred_binary, libexec/"vibeshine-vkms-peercred"
+      chmod 0755, libexec/"vibeshine-vkms-peercred"
+
       # Homebrew builds libdbus with its own prefix-specific default system-bus path.
       # Point the Avahi client at the host bus, while respecting explicit user overrides.
       # CMake installs the real binary under its versioned name and makes
@@ -302,6 +312,8 @@ class VibepolloApp < Formula
   test do
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists libexec/"vibepollo-bin"
+    assert_path_exists libexec/"vibeshine-vkms-peercred"
+    assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
 
     # The CUDA-enabled Linux build bundles NVIDIA's pinned TrueHDR runtime privately.
     # These SONAMEs are dlopen'ed from this directory, not ELF DT_NEEDED entries.
