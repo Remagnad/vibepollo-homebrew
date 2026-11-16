@@ -78,16 +78,22 @@ jobs:
           if len(casks) != 1:
               raise SystemExit("Homebrew JSON info did not return exactly one Vibepollo Cask")
           artifacts = casks[0].get("artifacts", [])
-          entries = [item["uninstall_preflight_steps"] for item in artifacts
-                     if isinstance(item, dict) and "uninstall_preflight_steps" in item]
-          if len(entries) != 1:
-              raise SystemExit("Homebrew JSON info did not serialize uninstall_preflight_steps")
-          serialized = json.dumps(entries[0])
-          for marker in ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass",
-                         "uninstall.sh", '"base": "staged_path"'):
-              if marker not in serialized:
-                  raise SystemExit(f"Homebrew uninstall step is missing {marker}")
-          print("Homebrew JSON metadata preserves the privileged uninstall and askpass configuration.")
+          install_entries = [item["preflight_steps"] for item in artifacts
+                             if isinstance(item, dict) and "preflight_steps" in item]
+          uninstall_entries = [item["uninstall_preflight_steps"] for item in artifacts
+                               if isinstance(item, dict) and "uninstall_preflight_steps" in item]
+          if len(install_entries) != 1 or len(uninstall_entries) != 1:
+              raise SystemExit("Homebrew JSON info did not serialize both privileged Cask preflight steps")
+          for label, entries, script in (
+              ("install", install_entries, "install.sh"),
+              ("uninstall", uninstall_entries, "uninstall.sh"),
+          ):
+              serialized = json.dumps(entries[0])
+              for marker in ('"sudo": true', '"SUDO_ASKPASS"', "vibepollo-askpass",
+                             script, '"base": "staged_path"'):
+                  if marker not in serialized:
+                      raise SystemExit(f"Homebrew {label} step is missing {marker}")
+          print("Homebrew JSON metadata preserves both privileged lifecycle steps and terminal askpass configuration.")
           PY
 
       - name: Check patch whitespace
