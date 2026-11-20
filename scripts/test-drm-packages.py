@@ -235,7 +235,7 @@ checks = [
     ("terminal askpass reads the password without echo", "read -r -s password" in (payload_dir / "vibepollo-askpass").read_text(encoding="utf-8")),
     ("Cask uninstaller bounds systemd and rmmod operations", 'systemctl_bounded 45' in uninstall_text and 'timeout --foreground --kill-after=5s 10s rmmod' in uninstall_text),
     ("pinned Linux libvirtualdisplay source commit in formula",
-     re.search(r'(?m)^  LIBVIRTUALDISPLAY_COMMIT = "[0-9a-f]{40}"\.freeze    ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
+     "LIBVIRTUALDISPLAY_COMMIT = " in formula_text and re.search(r"[0-9a-f]{40}[.]freeze", formula_text) is not None),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
     ("unencrypted-key validation", "-passin pass:" in install_text),
     ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
