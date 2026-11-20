@@ -37,10 +37,18 @@ def main() -> None:
     if not (root / "CMakeLists.txt").is_file():
         raise SystemExit(f"Not a Vibepollo source tree: {root}")
 
+    # Recent upstream tags select a dedicated Linux libvirtualdisplay gitlink.
+    # Older tags used the shared submodule path, so retain a compatibility fallback.
+    libvirtualdisplay_root = root / "third-party/libvirtualdisplay-linux"
+    if not (libvirtualdisplay_root / "CMakeLists.txt").is_file():
+        libvirtualdisplay_root = root / "third-party/libvirtualdisplay"
+    if not (libvirtualdisplay_root / "CMakeLists.txt").is_file():
+        raise SystemExit("Linux libvirtualdisplay submodule source is missing")
+
     # Install the peer-credential broker with the app formula. Machine
     # services and privileged pool provisioning remain Cask-managed.
     replace_once(
-        root / "third-party/libvirtualdisplay/src/driver/CMakeLists.txt",
+        libvirtualdisplay_root / "src/driver/CMakeLists.txt",
         """    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
 endif()""",
         """    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
@@ -52,7 +60,7 @@ endif()""",
 
     # The module lives outside /lib/modules; load it through our controller.
     replace_once(
-        root / "third-party/libvirtualdisplay/linux/packaging/vibeshine-vkms",
+        libvirtualdisplay_root / "linux/packaging/vibeshine-vkms",
         """  log "loading the Vibeshine DRM HDR virtual-display module"
   if ! modprobe "$DRM_MODULE" create_default_dev=0; then
     error "${DRM_MODULE} is unavailable; refusing CPU-backed stock VKMS fallback"

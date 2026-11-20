@@ -53,6 +53,12 @@ submodules=(
     third-party/wlr-protocols
 )
 
+# Recent upstream releases split the Windows/general and Linux libvirtualdisplay
+# sources into separate gitlinks. Linux CMake selects the -linux tree.
+if git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux | grep -q '^160000 commit '; then
+    submodules+=(third-party/libvirtualdisplay-linux)
+fi
+
 echo "::group::Fetch pinned top-level submodules"
 git -C "$source_dir" -c protocol.version=2 -c submodule.fetchJobs=8 submodule update --init --depth=1 --jobs 8 -- "${submodules[@]}"
 for path in "${submodules[@]}"; do
@@ -66,13 +72,25 @@ for path in "${submodules[@]}"; do
 done
 echo "::endgroup::"
 
-# Preserve the exact libvirtualdisplay gitlink selected by the upstream release.
-# The DRM Formula uses this pinned revision instead of following a floating branch.
-libvirtualdisplay_commit="$(git -C "$source_dir/third-party/libvirtualdisplay" rev-parse HEAD)"
+# Preserve the exact Linux libvirtualdisplay gitlink selected by the upstream release.
+# Older stable tags used the shared path; newer tags have a dedicated -linux tree.
+libvirtualdisplay_path="third-party/libvirtualdisplay"
+if [[ -f "$source_dir/third-party/libvirtualdisplay-linux/CMakeLists.txt" ]]; then
+    libvirtualdisplay_path="third-party/libvirtualdisplay-linux"
+fi
+libvirtualdisplay_commit="$(git -C "$source_dir/$libvirtualdisplay_path" rev-parse HEAD)"
 if [[ ! "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "Invalid libvirtualdisplay submodule commit: $libvirtualdisplay_commit" >&2
+    echo "Invalid Linux libvirtualdisplay submodule commit: $libvirtualdisplay_commit" >&2
     exit 1
 fi
+test -f "$source_dir/$libvirtualdisplay_path/linux/vibeshine-drm/Makefile" || {
+    echo "Missing Linux Vibeshine DRM kernel sources in $libvirtualdisplay_path." >&2
+    exit 1
+}
+test -f "$source_dir/$libvirtualdisplay_path/linux/packaging/vibeshine-vkms" || {
+    echo "Missing Linux Vibeshine pool provisioner in $libvirtualdisplay_path." >&2
+    exit 1
+}
 printf '%s\n' "$libvirtualdisplay_commit" > "${output_tarball}.libvirtualdisplay-commit"
 
 # inputtino's PS5 UHID implementation includes this submodule's shared UAPI

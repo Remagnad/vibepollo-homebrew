@@ -15,6 +15,7 @@ on:
     paths:
       - ".github/workflows/watch-upstream-release.yml"
       - "scripts/prepare-source.sh"
+      - "scripts/apply-homebrew-patches.py"
       - "scripts/render-formula.py"
       - "scripts/install-cuda-components.sh"
       - "scripts/vibepollo-launcher.sh"

@@ -21,8 +21,18 @@ version_root="$(tar -tzf "$source_archive" | sed -n '1{s,/.*,,;p;}')"
 }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+source_members="$(tar -tzf "$source_archive")"
+packaging_root="$version_root/third-party/libvirtualdisplay-linux/linux/packaging"
+if ! grep -Fqx "$packaging_root/vibeshine-vkms" <<< "$source_members"; then
+    # Compatibility with releases predating the Linux-specific submodule.
+    packaging_root="$version_root/third-party/libvirtualdisplay/linux/packaging"
+fi
 for file in vibeshine-vkms vibeshine-vkms-quiesce; do
-    tar -xOzf "$source_archive" "$version_root/third-party/libvirtualdisplay/linux/packaging/$file" > "$tmp/$file"
+    grep -Fqx "$packaging_root/$file" <<< "$source_members" || {
+        echo "Missing Linux libvirtualdisplay packaging helper: $packaging_root/$file" >&2
+        exit 1
+    }
+    tar -xOzf "$source_archive" "$packaging_root/$file" > "$tmp/$file"
     test -s "$tmp/$file"
     chmod 0755 "$tmp/$file"
 done

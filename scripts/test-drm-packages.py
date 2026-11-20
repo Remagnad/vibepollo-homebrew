@@ -208,11 +208,21 @@ if '#{version}/vibepollo-drm-integration-#{version}.tar.gz' not in rendered_cask
     raise SystemExit("DRM Cask URL must use Homebrew version interpolation")
 
 formula_text = formula.read_text(encoding="utf-8")
+prepare_source_text = (root / "scripts/prepare-source.sh").read_text(encoding="utf-8")
+homebrew_patches_text = (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")
+cask_packager_text = (root / "scripts/package-cask-payload.sh").read_text(encoding="utf-8")
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
 uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
+    ("Linux-specific libvirtualdisplay gitlink is fetched when present",
+     "third-party/libvirtualdisplay-linux" in prepare_source_text),
+    ("Homebrew patches the Linux-selected libvirtualdisplay source",
+     'third-party/libvirtualdisplay-linux' in homebrew_patches_text and
+     'libvirtualdisplay_root / "src/driver/CMakeLists.txt"' in homebrew_patches_text),
+    ("Cask payload uses the Linux-selected libvirtualdisplay scripts",
+     'third-party/libvirtualdisplay-linux/linux/packaging' in cask_packager_text),
     ("Cask delegates privileged uninstall to Homebrew install steps", "uninstall_preflight_steps do" in cask_text and 'run "uninstall.sh"' in cask_text and "base: :staged_path" in cask_text and "sudo: true" in cask_text),
     ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
@@ -224,7 +234,35 @@ checks = [
     ("Cask uninstaller does not invoke sudo itself", "sudo -v" not in uninstall_text and "SUDO_ASKPASS" not in uninstall_text and "sudo -n" not in uninstall_text),
     ("terminal askpass reads the password without echo", "read -r -s password" in (payload_dir / "vibepollo-askpass").read_text(encoding="utf-8")),
     ("Cask uninstaller bounds systemd and rmmod operations", 'systemctl_bounded 45' in uninstall_text and 'timeout --foreground --kill-after=5s 10s rmmod' in uninstall_text),
-    ("pinned source commit in formula", "b6874684d82925d0d76f487d8e4ba3ec71c9721a" in formula_text),
+    ("pinned Linux libvirtualdisplay source commit in formula",
+     re.search(r'(?m)^  LIBVIRTUALDISPLAY_COMMIT = "[0-9a-f]{40}"\\.freeze
+    ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
+    ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
+    ("unencrypted-key validation", "-passin pass:" in install_text),
+    ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
+    ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
+    ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
+    ("Cask does not start or enable services", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
+    ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
+    ("no service activation", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
+    ("no Secure Boot enrollment", "mokutil --import" not in install_text and "AUTO_ENROLL" not in install_text),
+    ("controller ownership marker", "write_managed_load 1" in controller_text),
+    ("module token parameter injected before Kbuild", "module_param_string(vibeshine_drmctl_token" in formula_text),
+    ("existing Kbuild source is edited with Homebrew inreplace", "inreplace driver_source do |s|" in formula_text and "driver_source.write(" not in formula_text),
+    ("controller generates a unique 256-bit token", "od -An -N32 -tx1 /dev/urandom" in controller_text),
+    ("controller passes token to insmod", '"vibeshine_drmctl_token=$LOAD_TOKEN"' in controller_text),
+    ("controller validates the live token before unload", "check_managed_load_token" in controller_text),
+    ("uninstaller validates the live token", "expected_token" in uninstall_text and "loaded_token" in uninstall_text),
+    ("safe uninstaller ownership check", 'elif [[ "$(state_value managed_load)" != "1" ]]' in uninstall_text and "MODULE_UNVERIFIED_LOADED=1" in uninstall_text and 'if [[ "$STATE_TRUSTED" != "1" || "$MODULE_UNVERIFIED_LOADED" == "1" ]]' in uninstall_text),
+    ("key preservation", "Preserved signing keys" in uninstall_text),
+    ("no incorrect sig_key/serial comparison", "modinfo -F sig_key" not in install_text + controller_text),
+]
+for label, passed in checks:
+    if not passed:
+        raise SystemExit(f"Failed DRM lifecycle check: {label}")
+
+print("Vibeshine DRM Formula/Cask syntax, payloads, published checksum, renderer and lifecycle checks passed.")
+, formula_text) is not None),
     ("commit-qualified module version", 'LIBVIRTUALDISPLAY_COMMIT[0, 12]' in formula_text),
     ("matching key pair validation", "KEY_FINGERPRINT" in install_text and "CERT_FINGERPRINT" in install_text),
     ("unencrypted-key validation", "-passin pass:" in install_text),

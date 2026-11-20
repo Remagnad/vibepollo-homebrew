@@ -77,7 +77,10 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/Nonary/Vibepollo/git/trees/$UPSTREAM_COMMIT?recursive=1")"
-          libvirtualdisplay_commit="$(jq -er '.tree[] | select(.path == "third-party/libvirtualdisplay" and .mode == "160000" and .type == "commit") | .sha' <<<"$tree_json")"
+          libvirtualdisplay_commit="$(jq -er '
+            ([.tree[] | select(.path == "third-party/libvirtualdisplay-linux" and .mode == "160000" and .type == "commit") | .sha][0])
+            // ([.tree[] | select(.path == "third-party/libvirtualdisplay" and .mode == "160000" and .type == "commit") | .sha][0])
+          ' <<<"$tree_json")"
           [[ "$libvirtualdisplay_commit" =~ ^[0-9a-f]{40}$ ]]
           echo "LIBVIRTUALDISPLAY_COMMIT=$libvirtualdisplay_commit" >> "$GITHUB_ENV"
 

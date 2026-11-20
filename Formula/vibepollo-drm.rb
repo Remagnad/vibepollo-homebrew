@@ -43,7 +43,12 @@ class VibepolloDrm < Formula
 
     source_root = buildpath/"Vibepollo-#{version}"
     source_root = buildpath unless source_root.directory?
-    module_source = source_root/"third-party/libvirtualdisplay/linux/vibeshine-drm"
+    libvirtualdisplay_source = source_root/"third-party/libvirtualdisplay-linux"
+    unless (libvirtualdisplay_source/"CMakeLists.txt").file?
+      # Compatibility with older upstream tags using the shared submodule path.
+      libvirtualdisplay_source = source_root/"third-party/libvirtualdisplay"
+    end
+    module_source = libvirtualdisplay_source/"linux/vibeshine-drm"
     required_sources = %w[
       Makefile
       vkms_drv.c
