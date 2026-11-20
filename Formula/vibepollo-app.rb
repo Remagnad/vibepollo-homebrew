@@ -1,13 +1,13 @@
 class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
-  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "e36e8a684063832255bfd7f9826b032ce314d2479ccfb6b19ebafc0173327ad1"
+  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9/vibepollo-source-2.18.9.tar.gz"
+  sha256 "2fae85a731e975bd48b05cd67cef709f8a1878cd73443267be62203afc5c5017"
   license "GPL-3.0-only"
 
   bottle do
-    root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6"
-    sha256 x86_64_linux: "81b54c1e553cad769e72be288a02d52159b3780445945d6a2608c5b0c2bf817b"
+    root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9"
+    sha256 x86_64_linux: "5309fdb6efe8fdfd1c0f9d5b34315aa1457da1974f8cb5dad28670ee176d9f3e"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -66,8 +66,8 @@ class VibepolloApp < Formula
   depends_on "zlib-ng-compat"
 
   # These values are generated from the exact GitHub release tag and commit.
-  UPSTREAM_TAG = "2.0.6".freeze
-  UPSTREAM_COMMIT = "5e6ed8594184212d429bb093d7fd47904c9a6fa6".freeze
+  UPSTREAM_TAG = "2.18.9".freeze
+  UPSTREAM_COMMIT = "c286d08628ea059d013e94c65869e4260576d2d0".freeze
 
   # Minimal pinned NVIDIA compiler/runtime components used only for source builds.
   CUDA_VERSION = "12.9".freeze
