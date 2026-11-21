@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Static syntax, packaging, published-checksum and lifecycle checks for DRM packages."""
+# Keep lifecycle UI, launcher and boot semantics covered by the same package gate.
 from __future__ import annotations
 
 import hashlib
