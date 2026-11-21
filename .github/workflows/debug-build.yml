@@ -228,7 +228,7 @@ jobs:
             fi
           done
           if (("${#outdated_dependencies[@]}" > 0)); then
-            printf 'Upgrading %s outdated cached dependencies before the source build.\\n' "${#outdated_dependencies[@]}"
+            printf 'Upgrading %s outdated cached dependencies before the source build.\n' "${#outdated_dependencies[@]}"
             brew upgrade --formula "${outdated_dependencies[@]}"
           fi
           if brew list --versions cmake >/dev/null 2>&1; then
