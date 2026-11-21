@@ -486,7 +486,7 @@ endif()""",
         std::string action_arg = action;
         std::string pid_arg;
         char *argv[5] = {};
-        argv[0] = const_cast<char *>("pkexec");
+        argv[0] = const_cast<char *>("/usr/bin/pkexec");
         argv[1] = helper.data();
         argv[2] = action_arg.data();
         if (action == "stop-after-pid") {
@@ -495,7 +495,7 @@ endif()""",
         }
 
         pid_t child = -1;
-        const int spawn_error = ::posix_spawnp(&child, "pkexec", nullptr, nullptr, argv, environ);
+        const int spawn_error = ::posix_spawn(&child, "/usr/bin/pkexec", nullptr, nullptr, argv, environ);
         int status = 0;
         int wait_error = 0;
         bool success = false;
