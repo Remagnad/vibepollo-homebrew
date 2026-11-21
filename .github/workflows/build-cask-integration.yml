@@ -126,11 +126,6 @@ jobs:
             --pattern "$SOURCE_ASSET" --dir dist
           test -s "dist/$SOURCE_ASSET"
 
-      - name: Validate Cask scripts and package policy
-        env:
-          VIBEPOLLO_SKIP_PUBLISHED_ASSET_CHECK: "1"
-        run: python3 scripts/test-drm-packages.py
-
       - name: Build only the Cask integration archive
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -226,6 +221,12 @@ jobs:
 
           cp "$RUNNER_TEMP/Formula/vibepollo-drm.rb" Formula/vibepollo-drm.rb
           cp "$RUNNER_TEMP/Casks/vibepollo.rb" Casks/vibepollo.rb
+
+          # Validate only after rendering the Cask against the just-built app
+          # bottle and integration archive. Running this before rendering
+          # compares stale checked-in revision metadata and fails valid builds.
+          VIBEPOLLO_SKIP_PUBLISHED_ASSET_CHECK=1 python3 scripts/test-drm-packages.py
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula/vibepollo-drm.rb Casks/vibepollo.rb

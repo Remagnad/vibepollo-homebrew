@@ -11,9 +11,12 @@ BIN_DIR="$DRM_ROOT/bin"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_MODULE_FCONTEXT_SPEC="$MODULES_DIR/[^/]+/vibeshine_drm[.]ko"
 SELINUX_ACTIVE=0
 SELINUX_RULE_OWNED=0
 SELINUX_RULE_ADDED=0
+SELINUX_MODULE_RULE_OWNED=0
+SELINUX_MODULE_RULE_ADDED=0
 SELINUX_STATE_COMMITTED=0
 
 fail() { printf 'vibepollo Cask installer: error: %s\n' "$*" >&2; exit 1; }
@@ -60,6 +63,9 @@ esac
 PRIOR_SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
 [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_RULE_OWNED=0
 SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
+PRIOR_SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"
+[[ "$PRIOR_SELINUX_MODULE_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_MODULE_RULE_OWNED=0
+SELINUX_MODULE_RULE_OWNED="$PRIOR_SELINUX_MODULE_RULE_OWNED"
 FORMULA_PREFIX="$1"
 APP_PREFIX="$2"
 STAGED_DIR="$3"
@@ -237,6 +243,10 @@ cleanup() {
     semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch >/dev/null 2>&1 || true
   fi
+  if [[ "$SELINUX_MODULE_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC" >/dev/null 2>&1 || true
+    restorecon -F "$MODULES_DIR/$KERNEL_RELEASE/vibeshine_drm.ko" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT HUP INT TERM
 cp -- "$MODULE_FILE" "$TMP_DIR/vibeshine_drm.ko"
@@ -298,11 +308,30 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
     IFS=: read -r _ _ helper_type _ <<< "$helper_context"
     [[ "$helper_type" == "bin_t" ]] || fail "SELinux did not label $BIN_DIR/$helper as bin_t (actual context: $helper_context)"
   done
+
+  existing_module_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  if [[ -n "$existing_module_selinux_context" ]]; then
+    IFS=: read -r _ _ existing_module_selinux_type _ <<< "$existing_module_selinux_context"
+    [[ "$existing_module_selinux_type" == "modules_object_t" ]] ||
+      fail "an existing SELinux rule assigns the Vibeshine DRM module to $existing_module_selinux_type instead of modules_object_t; refusing to overwrite it"
+    SELINUX_MODULE_RULE_OWNED="$PRIOR_SELINUX_MODULE_RULE_OWNED"
+  else
+    semanage fcontext -a -f f -t modules_object_t "$SELINUX_MODULE_FCONTEXT_SPEC" ||
+      fail "could not add the persistent SELinux modules_object_t rule for the Vibeshine DRM module"
+    SELINUX_MODULE_RULE_ADDED=1
+    SELINUX_MODULE_RULE_OWNED=1
+  fi
+  MODULE_DEST_PATH="$MODULES_DIR/$KERNEL_RELEASE/vibeshine_drm.ko"
+  restorecon -F "$MODULE_DEST_PATH" || fail "could not apply the SELinux kernel-module label to $MODULE_DEST_PATH"
+  module_context="$(stat -c '%C' "$MODULE_DEST_PATH")"
+  IFS=: read -r _ _ module_type _ <<< "$module_context"
+  [[ "$module_type" == "modules_object_t" ]] ||
+    fail "SELinux did not label $MODULE_DEST_PATH as modules_object_t (actual context: $module_context)"
 fi
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
-printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\n' \
-  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" > "$STATE_TMP"
+printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\nselinux_module_fcontext_owned=%s\nselinux_module_fcontext_spec=%s\n' \
+  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" "$SELINUX_MODULE_RULE_OWNED" "$SELINUX_MODULE_FCONTEXT_SPEC" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
