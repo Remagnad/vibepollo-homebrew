@@ -119,7 +119,10 @@ jobs:
           if [[ "$newest" == "$version" && ( "$version" != "$current" || "$commit" != "$processed_commit" ) ]]; then
             updated=true
           fi
-          force_rebuild="${{ inputs.rebuild || github.event_name == 'push' }}"
+          # Editing this workflow should run the lightweight release check,
+          # not force another multi-hour source build. Other build-recipe pushes
+          # still request a rebuild; manual runs use the explicit input.
+          force_rebuild="${{ inputs.rebuild || (github.event_name == 'push' && !contains(github.event.head_commit.modified, '.github/workflows/watch-upstream-release.yml')) }}"
           if [[ "$force_rebuild" == "true" && "$newest" == "$version" ]]; then
             updated=true
           fi
@@ -777,6 +780,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - name: Check out tap
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -982,3 +986,27 @@ jobs:
           fi
           git commit -m "Update Vibepollo to $VERSION"
           git push origin HEAD:main
+
+      - name: Queue matching DRM and Cask integration update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check-upstream.outputs.version }}
+          COMMIT: ${{ needs.check-upstream.outputs.commit }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          # The Cask workflow is dispatched explicitly because the preceding
+          # Formula/marker commit uses GITHUB_TOKEN, whose push event is not
+          # allowed to start another workflow.
+          git fetch --quiet origin main
+          published_version="$(git show origin/main:upstream-version | tr -d '[:space:]')"
+          published_commit="$(git show origin/main:upstream-commit | tr -d '[:space:]')"
+          if [[ "$published_version" != "$VERSION" || "$published_commit" != "$COMMIT" ]]; then
+            echo "::notice::main now tracks $published_version ($published_commit); skipping stale Cask dispatch for $VERSION ($COMMIT)."
+            exit 0
+          fi
+
+          gh workflow view build-cask-integration.yml --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh workflow run build-cask-integration.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Queued DRM Formula and Cask integration update for Vibepollo $VERSION ($COMMIT)."
