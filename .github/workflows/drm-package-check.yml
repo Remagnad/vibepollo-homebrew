@@ -11,6 +11,7 @@ on:
       - "Formula/vibepollo-drm.rb"
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
+      - "scripts/prepare-source.sh"
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/apply-homebrew-patches.py"
@@ -44,6 +45,20 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate the Homebrew patch against the pinned upstream source and submodules
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < upstream-version)"
+          commit="$(tr -d '[:space:]' < upstream-commit)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/vibepollo-source-check"
+          SOURCE_DATE_EPOCH=0 bash scripts/prepare-source.sh \
+            "v$version" "$commit" \
+            "$RUNNER_TEMP/vibepollo-source-check/vibepollo-source.tar.gz"
+          test -s "$RUNNER_TEMP/vibepollo-source-check/vibepollo-source.tar.gz"
 
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
