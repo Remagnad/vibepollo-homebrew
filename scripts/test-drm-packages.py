@@ -19,7 +19,7 @@ formula = root / "Formula/vibepollo-drm.rb"
 cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
 payload_files = [
-    "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl",
+    "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
     "vibeshine-vkms", "vibeshine-vkms-quiesce",
     "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
     "vibeshine-vkms-control@.service",
@@ -33,7 +33,7 @@ if not migration_helper.is_file() or migration_helper.is_symlink():
     raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
 subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
 
-for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl"):
+for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
