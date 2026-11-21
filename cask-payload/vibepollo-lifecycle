@@ -197,7 +197,7 @@ remove_autostart_entry() {
 }
 
 update_lifecycle_state() {
-  local key="$1" value="$2" tmp
+  local key="$1" value="$2" tmp state_sha receipt_tmp
   tmp="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")" || return 1
   if ! awk -F= -v key="$key" -v value="$value" '
     BEGIN { OFS = "="; seen = 0 }
@@ -210,6 +210,30 @@ update_lifecycle_state() {
   fi
   if ! chown root:root "$tmp" || ! chmod 0644 "$tmp" || ! mv -f -- "$tmp" "$LIFECYCLE_STATE"; then
     rm -f -- "$tmp"
+    return 1
+  fi
+
+  # The lifecycle state is intentionally mutable (autostart is a user
+  # preference). Refresh its root-owned Cask receipt after every atomic update
+  # so uninstall can distinguish our current state from an external edit.
+  state_sha="$(sha256sum "$LIFECYCLE_STATE" | awk '{print $1}')" || return 1
+  receipt_tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")" || return 1
+  if ! awk -F= -v sha="$state_sha" '
+    BEGIN { seen = 0 }
+    $1 == "lifecycle_state_sha256" {
+      print "lifecycle_state_sha256=" sha
+      seen = 1
+      next
+    }
+    { print }
+    END { if (!seen) print "lifecycle_state_sha256=" sha }
+  ' "$INSTALL_STATE" > "$receipt_tmp"; then
+    rm -f -- "$receipt_tmp"
+    return 1
+  fi
+  if ! chown root:root "$receipt_tmp" || ! chmod 0644 "$receipt_tmp" ||
+     ! mv -f -- "$receipt_tmp" "$INSTALL_STATE"; then
+    rm -f -- "$receipt_tmp"
     return 1
   fi
   return 0
