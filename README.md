@@ -65,7 +65,7 @@ sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl status
 sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl unload
 \`\`\`
 
-The Cask does not load the module or enable services during installation. When you launch Vibepollo from the Homebrew launcher, it requests graphical authorization through \`/usr/bin/pkexec\` and starts the managed virtual-display pool if it is not already active. The graphical lifecycle controls require a PolicyKit installation that provides \`/usr/bin/pkexec\`. Without it, the app remains installed, but on-demand privileged actions and the tray lifecycle controls are unavailable; you can start the pool manually with \`sudo systemctl start vibeshine-vkms.service\`. The tray menu provides:
+The Cask does not load the module or enable services during installation. When you launch Vibepollo from the Homebrew launcher, it requests graphical authorization through \`/usr/bin/pkexec\` and starts the managed virtual-display pool if it is not already active. The graphical lifecycle controls require PolicyKit's \`/usr/bin/pkexec\` and an active graphical PolicyKit authentication agent in the desktop session. Without it, the app remains installed, but on-demand privileged actions and the tray lifecycle controls are unavailable; you can start the pool manually with \`sudo systemctl start vibeshine-vkms.service\`. The tray menu provides:
 
 - **Quit** — exits Vibepollo and leaves the system integration running.
 - **Quit and stop services** — exits gracefully, stops the virtual-display pool, then attempts to unload only the verified Cask-managed module. If the compositor still holds the module, it is left loaded.
