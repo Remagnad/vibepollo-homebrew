@@ -53,6 +53,10 @@ def main() -> None:
 endif()""",
         """    target_compile_features(vibeshine_vkms_peercred PRIVATE cxx_std_20)
     if(SUNSHINE_BUILD_HOMEBREW)
+        # Homebrew rewrites PT_INTERP to its private loader when creating Linux
+        # bottles. This tiny broker helper only needs libc syscalls and execv;
+        # link it statically so it remains runnable inside ProtectHome=yes.
+        target_link_options(vibeshine_vkms_peercred PRIVATE -static)
         install(TARGETS vibeshine_vkms_peercred RUNTIME DESTINATION libexec)
     endif()
 endif()""",
@@ -396,6 +400,7 @@ endif()""",
         }""",
     )
 
+    print("Applied the static peer-credential broker link fix.")
     print("Applied the PipeWire native NVENC device factory fix.")
     print("Applied the Linux AppIndicator shutdown cleanup fix.")
     print("Applied the RTSP shutdown cancellation fix.")
