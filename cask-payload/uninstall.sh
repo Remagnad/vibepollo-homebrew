@@ -243,6 +243,22 @@ for directory in bin state; do
       ;;
     state)
       remove_owned_selinux_fcontext
+      lifecycle_state="$STATE_DIR/vibepollo-lifecycle"
+      if [[ -e "$lifecycle_state" || -L "$lifecycle_state" ]]; then
+        [[ -f "$lifecycle_state" && ! -L "$lifecycle_state" ]] ||
+          fail "refusing unsafe lifecycle state file"
+        [[ "$(stat -c '%u' "$lifecycle_state")" == 0 ]] ||
+          fail "lifecycle state must be root-owned"
+        lifecycle_mode="$(stat -c '%a' "$lifecycle_state")"
+        (( (8#$lifecycle_mode & 0022) == 0 )) ||
+          fail "lifecycle state must not be writable by group or others"
+        expected_lifecycle_sha="$(state_value lifecycle_state_sha256)"
+        actual_lifecycle_sha="$(sha256sum "$lifecycle_state" | awk '{print $1}')"
+        [[ "$expected_lifecycle_sha" =~ ^[0-9a-f]{64}$ &&
+           "$actual_lifecycle_sha" == "$expected_lifecycle_sha" ]] ||
+          fail "lifecycle state differs from the Cask-owned receipt; preserving it"
+        rm -f -- "$lifecycle_state"
+      fi
       [[ ! -L "$STATE_FILE" ]] || fail "refusing symbolic-link state file"
       rm -f -- "$STATE_FILE"
       ;;
