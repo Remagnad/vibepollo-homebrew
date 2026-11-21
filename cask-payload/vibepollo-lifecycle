@@ -57,7 +57,7 @@ bounded_systemctl() {
 
 unit_is_active() {
   local unit="$1" rc=0
-  systemctl is-active --quiet "$unit" || rc=$?
+  timeout --foreground --kill-after=5s 10s systemctl is-active --quiet "$unit" || rc=$?
   case "$rc" in
     0) return 0 ;;
     3|4) return 1 ;;
@@ -105,6 +105,9 @@ load_and_verify_state() {
   command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
   command -v timeout >/dev/null 2>&1 || fail "timeout is required"
   command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
+  command -v getent >/dev/null 2>&1 || fail "getent is required"
+  command -v runuser >/dev/null 2>&1 || fail "runuser from util-linux is required"
+  command -v readlink >/dev/null 2>&1 || fail "readlink is required"
 }
 
 resolve_desktop_user() {
@@ -115,6 +118,8 @@ resolve_desktop_user() {
   [[ "$DESKTOP_HOME" == /* && -d "$DESKTOP_HOME" ]] || fail "desktop account home directory is unavailable"
   [[ "$DESKTOP_HOME" != "/" ]] || fail "refusing to use the filesystem root as a home directory"
   AUTOSTART_DIR="$DESKTOP_HOME/.config/autostart"
+  [[ ! -L "$DESKTOP_HOME/.config" ]] || fail "refusing a symbolic-link .config directory"
+  [[ ! -L "$AUTOSTART_DIR" ]] || fail "refusing a symbolic-link autostart directory"
   AUTOSTART_FILE="$AUTOSTART_DIR/$AUTOSTART_NAME"
 }
 
@@ -190,16 +195,21 @@ remove_autostart_entry() {
 
 update_lifecycle_state() {
   local key="$1" value="$2" tmp
-  tmp="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")"
-  awk -F= -v key="$key" -v value="$value" '
+  tmp="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")" || return 1
+  if ! awk -F= -v key="$key" -v value="$value" '
     BEGIN { OFS = "="; seen = 0 }
     $1 == key { print key, value; seen = 1; next }
     { print }
     END { if (!seen) print key, value }
-  ' "$LIFECYCLE_STATE" > "$tmp"
-  chown root:root "$tmp"
-  chmod 0644 "$tmp"
-  mv -f -- "$tmp" "$LIFECYCLE_STATE"
+  ' "$LIFECYCLE_STATE" > "$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  if ! chown root:root "$tmp" || ! chmod 0644 "$tmp" || ! mv -f -- "$tmp" "$LIFECYCLE_STATE"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  return 0
 }
 
 start_pool() {
@@ -292,17 +302,21 @@ wait_for_invoking_process() {
 }
 
 enable_autostart() {
-  local was_enabled=0 enabled_state
+  local was_enabled=0 enabled_state entry_installed=0
   enabled_state="$(systemctl is-enabled "$POOL_UNIT" 2>/dev/null || true)"
   [[ "$enabled_state" == enabled ]] && was_enabled=1
-  bounded_systemctl 30 "enabling the Vibeshine pool at boot" enable "$POOL_UNIT"
-  if ! install_autostart_entry; then
-    if (( was_enabled == 0 )); then
-      systemctl disable "$POOL_UNIT" >/dev/null 2>&1 || true
-    fi
-    return 1
+
+  install_autostart_entry
+  entry_installed=1
+  if ! timeout --foreground --kill-after=5s 30s systemctl enable "$POOL_UNIT"; then
+    (( entry_installed == 0 )) || remove_autostart_entry
+    fail "could not enable the Vibeshine pool at boot"
   fi
-  update_lifecycle_state autostart_enabled 1
+  if ! update_lifecycle_state autostart_enabled 1; then
+    (( was_enabled == 1 )) || systemctl disable "$POOL_UNIT" >/dev/null 2>&1 || true
+    remove_autostart_entry
+    fail "could not persist the autostart state; changes were rolled back"
+  fi
   log "autostart enabled; the current session was not changed"
 }
 
@@ -313,6 +327,7 @@ disable_autostart() {
     return 0
   fi
   [[ "$(systemctl is-enabled "$POOL_UNIT" 2>/dev/null || true)" == enabled ]] && was_enabled=1
+
   bounded_systemctl 30 "disabling the Vibeshine pool at boot" disable "$POOL_UNIT"
   if ! remove_autostart_entry; then
     if (( was_enabled == 1 )); then
@@ -320,7 +335,13 @@ disable_autostart() {
     fi
     return 1
   fi
-  update_lifecycle_state autostart_enabled 0
+  if ! update_lifecycle_state autostart_enabled 0; then
+    install_autostart_entry
+    if (( was_enabled == 1 )); then
+      systemctl enable "$POOL_UNIT" >/dev/null 2>&1 || true
+    fi
+    fail "could not persist the disabled autostart state; changes were rolled back"
+  fi
   log "autostart disabled; any services already running were left untouched"
 }
 
