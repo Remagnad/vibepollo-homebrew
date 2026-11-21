@@ -9,7 +9,9 @@ STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 BIN_DIR="$DRM_ROOT/bin"
 SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_MODULE_FCONTEXT_SPEC="$DRM_ROOT/modules/[^/]+/vibeshine_drm[.]ko"
 SELINUX_RULE_OWNED=0
+SELINUX_MODULE_RULE_OWNED=0
 MODULE_NAME="vibeshine_drm"
 STATE_TRUSTED=0
 MODULE_UNVERIFIED_LOADED=0
@@ -43,6 +45,28 @@ remove_owned_selinux_fcontext() {
     log "the Cask-owned SELinux executable-label rule is already absent"
   fi
   SELINUX_RULE_OWNED=0
+}
+remove_owned_module_selinux_fcontext() {
+  [[ "$SELINUX_MODULE_RULE_OWNED" == "1" ]] || return 0
+  for kernel_dir in "$DRM_ROOT/modules"/*; do
+    [[ -e "$kernel_dir" || -L "$kernel_dir" ]] || continue
+    module_file="$kernel_dir/vibeshine_drm.ko"
+    [[ ! -e "$module_file" && ! -L "$module_file" ]] ||
+      fail "cannot remove the Cask-owned SELinux module-label rule while module remains: $module_file"
+  done
+  command -v semanage >/dev/null 2>&1 || fail "semanage is required to remove the Cask-owned SELinux module file-context rule"
+  existing_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  if [[ -n "$existing_context" ]]; then
+    IFS=: read -r _ _ existing_type _ <<< "$existing_context"
+    [[ "$existing_type" == "modules_object_t" ]] ||
+      fail "the SELinux rule for Vibeshine DRM modules was changed outside this Cask; preserving it"
+    semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC" ||
+      fail "could not remove the Cask-owned SELinux module file-context rule"
+    log "removed the Cask-owned SELinux kernel-module label rule"
+  else
+    log "the Cask-owned SELinux kernel-module label rule is already absent"
+  fi
+  SELINUX_MODULE_RULE_OWNED=0
 }
 systemctl_bounded() {
   local limit="$1" description="$2" rc=0
@@ -85,6 +109,8 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
   STATE_TRUSTED=1
   SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
   [[ "$SELINUX_RULE_OWNED" == "1" ]] || SELINUX_RULE_OWNED=0
+  SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"
+  [[ "$SELINUX_MODULE_RULE_OWNED" == "1" ]] || SELINUX_MODULE_RULE_OWNED=0
 fi
 
 # Remove only the XDG autostart entry whose checksum and owner are recorded
@@ -243,6 +269,7 @@ for directory in bin state; do
       ;;
     state)
       remove_owned_selinux_fcontext
+      remove_owned_module_selinux_fcontext
       lifecycle_state="$STATE_DIR/vibepollo-lifecycle"
       if [[ -e "$lifecycle_state" || -L "$lifecycle_state" ]]; then
         [[ -f "$lifecycle_state" && ! -L "$lifecycle_state" ]] ||
