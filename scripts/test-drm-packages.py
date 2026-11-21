@@ -271,8 +271,8 @@ checks = [
      "Quit and stop services" in homebrew_patches_text and
      "Start with system" in homebrew_patches_text and
      '"stop-after-pid"' in homebrew_patches_text),
-    ("tray actions use pkexec rather than terminal sudo",
-     '"pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
+    ("tray actions use the trusted pkexec path rather than terminal sudo",
+     '"/usr/bin/pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
     ("VKMS unit has an opt-in boot target",
      "WantedBy=multi-user.target" in
      (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
