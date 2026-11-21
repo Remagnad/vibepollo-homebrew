@@ -1,8 +1,8 @@
 class VibepolloDrm < Formula
   desc "Vibeshine HDR virtual-display kernel module"
   homepage "https://github.com/Nonary/libvirtualdisplay"
-  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.0.6/vibepollo-source-2.0.6.tar.gz"
-  sha256 "e36e8a684063832255bfd7f9826b032ce314d2479ccfb6b19ebafc0173327ad1"
+  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9/vibepollo-source-2.18.9.tar.gz"
+  sha256 "2fae85a731e975bd48b05cd67cef709f8a1878cd73443267be62203afc5c5017"
   license "GPL-2.0-only"
 
   depends_on "make" => :build
@@ -10,7 +10,7 @@ class VibepolloDrm < Formula
   depends_on :linux
   env :std
 
-  LIBVIRTUALDISPLAY_COMMIT = "b6874684d82925d0d76f487d8e4ba3ec71c9721a".freeze
+  LIBVIRTUALDISPLAY_COMMIT = "9fc7b61b72c79328654d943b2ad7768021cc7d7f".freeze
   MINIMUM_KERNEL_VERSION = [6, 16].freeze
 
   def install
