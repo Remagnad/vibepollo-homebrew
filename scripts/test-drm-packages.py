@@ -268,7 +268,7 @@ checks = [
     ("autostart is opt-in and starts the pool at boot",
      "WantedBy=multi-user.target" in
      (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8") and
-     "autostart_enabled=0" in install_text),
+     "PRIOR_AUTOSTART_ENABLED=0" in install_text),
     ("Cask helper ownership receipts use newline-separated checksums",
      "printf 'helper_%s_sha256=%s\\n'" in install_text),
     ("Cask installer runs as root through Homebrew preflight steps", "preflight_steps do" in cask_text and 'run "install.sh"' in cask_text and "sudo: true" in cask_text and '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
