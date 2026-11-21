@@ -592,6 +592,18 @@ endif()""",
 """,
     )
 
+    insert_before_once(
+        root / "src/system_tray.cpp",
+        "  static int init_tray() {\n  #ifdef _WIN32",
+        """#ifdef __linux__
+  static void dispatch_lifecycle_completion(std::function<void()> fn) {
+    run_on_tray_thread(std::move(fn));
+  }
+#endif
+
+""",
+    )
+
     print("Applied the static peer-credential broker link fix.")
     print("Applied the PipeWire native NVENC device factory fix.")
     print("Applied the Linux AppIndicator shutdown cleanup fix.")
