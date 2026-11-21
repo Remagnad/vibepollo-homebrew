@@ -400,6 +400,197 @@ endif()""",
         }""",
     )
 
+    # Add Homebrew-only lifecycle controls to the Linux C++ tray.
+    replace_once(
+        root / "src/system_tray.cpp",
+        """  #include <queue>
+  #include <string>
+  #include <thread>
+  #include <utility>""",
+        """  #include <queue>
+  #include <string>
+  #include <thread>
+  #include <utility>
+#ifdef __linux__
+  #include <cerrno>
+  #include <fstream>
+  #include <spawn.h>
+  #include <sys/stat.h>
+  #include <sys/wait.h>
+  #include <unistd.h>
+  extern char **environ;
+#endif""",
+    )
+    insert_before_once(
+        root / "src/system_tray.cpp",
+        "  // Tray menu\n",
+        """#ifdef __linux__
+  namespace {
+    constexpr const char *VIBEPOLLO_LIFECYCLE_HELPER =
+      "/var/lib/vibepollo/drm/bin/vibepollo-lifecycle";
+    constexpr const char *VIBEPOLLO_LIFECYCLE_STATE =
+      "/var/lib/vibepollo/drm/state/vibepollo-lifecycle";
+
+    bool lifecycle_helper_is_cask_owned() {
+      struct stat st {};
+      if (::lstat(VIBEPOLLO_LIFECYCLE_HELPER, &st) != 0) {
+        return false;
+      }
+      return S_ISREG(st.st_mode) && st.st_uid == 0 &&
+             (st.st_mode & 0022) == 0 && (st.st_mode & 0111) != 0;
+    }
+
+    bool read_lifecycle_autostart_state() {
+      struct stat st {};
+      if (::lstat(VIBEPOLLO_LIFECYCLE_STATE, &st) != 0 ||
+          !S_ISREG(st.st_mode) || st.st_uid != 0 || (st.st_mode & 0022) != 0) {
+        return false;
+      }
+      std::ifstream state_file(VIBEPOLLO_LIFECYCLE_STATE);
+      std::string line;
+      constexpr const char *key = "autostart_enabled=";
+      while (std::getline(state_file, line)) {
+        if (line.rfind(key, 0) == 0) {
+          return line.substr(std::strlen(key)) == "1";
+        }
+      }
+      return false;
+    }
+  }  // namespace
+
+  static const bool lifecycle_helper_available = lifecycle_helper_is_cask_owned();
+  static std::atomic<bool> lifecycle_autostart_enabled {read_lifecycle_autostart_state()};
+  static std::atomic<bool> lifecycle_action_pending {false};
+
+  template<typename Fn>
+  static void run_on_tray_thread(Fn &&fn);
+  static void update_lifecycle_tray_menu();
+
+  static void run_lifecycle_action(std::string action, bool update_autostart, bool desired_autostart) {
+    if (!lifecycle_helper_available) {
+      BOOST_LOG(warning) << "The Vibepollo Homebrew lifecycle integration is not installed"sv;
+      return;
+    }
+
+    bool expected = false;
+    if (!lifecycle_action_pending.compare_exchange_strong(expected, true)) {
+      BOOST_LOG(info) << "A Vibepollo lifecycle action is already running"sv;
+      return;
+    }
+    update_lifecycle_tray_menu();
+
+    try {
+      std::thread([action = std::move(action), update_autostart, desired_autostart]() {
+        std::string helper = VIBEPOLLO_LIFECYCLE_HELPER;
+        std::string action_arg = action;
+        std::string pid_arg;
+        char *argv[5] = {};
+        argv[0] = const_cast<char *>("pkexec");
+        argv[1] = helper.data();
+        argv[2] = action_arg.data();
+        if (action == "stop-after-pid") {
+          pid_arg = std::to_string(static_cast<long>(::getpid()));
+          argv[3] = pid_arg.data();
+        }
+
+        pid_t child = -1;
+        const int spawn_error = ::posix_spawnp(&child, "pkexec", nullptr, nullptr, argv, environ);
+        int status = 0;
+        int wait_error = 0;
+        bool success = false;
+        if (spawn_error == 0) {
+          pid_t waited;
+          do {
+            waited = ::waitpid(child, &status, 0);
+          } while (waited < 0 && errno == EINTR);
+          if (waited == child) {
+            success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+          } else {
+            wait_error = errno;
+          }
+        }
+
+        run_on_tray_thread([action, update_autostart, desired_autostart, success, spawn_error, wait_error]() {
+          if (success && update_autostart) {
+            lifecycle_autostart_enabled.store(desired_autostart);
+          }
+          lifecycle_action_pending.store(false);
+          update_lifecycle_tray_menu();
+          if (!success) {
+            if (spawn_error != 0) {
+              BOOST_LOG(error) << "Could not start pkexec for lifecycle action "sv
+                               << action << ": " << std::strerror(spawn_error);
+            } else if (wait_error != 0) {
+              BOOST_LOG(error) << "Could not wait for lifecycle action "sv
+                               << action << ": " << std::strerror(wait_error);
+            } else {
+              BOOST_LOG(warning) << "Vibepollo lifecycle action was cancelled or failed: "sv << action;
+            }
+          } else {
+            BOOST_LOG(info) << "Vibepollo lifecycle action completed: "sv << action;
+          }
+        });
+      }).detach();
+    } catch (const std::system_error &exception) {
+      lifecycle_action_pending.store(false);
+      update_lifecycle_tray_menu();
+      BOOST_LOG(error) << "Could not start the lifecycle authorization worker: "sv << exception.what();
+    }
+  }
+
+  void tray_quit_and_stop_services_cb([[maybe_unused]] struct tray_menu *item) {
+    BOOST_LOG(info) << "Quitting Vibepollo and stopping system services from tray"sv;
+    proc::proc.terminate();
+    run_lifecycle_action("stop-after-pid", false, false);
+  }
+
+  void tray_toggle_autostart_cb([[maybe_unused]] struct tray_menu *item) {
+    const bool enable = !lifecycle_autostart_enabled.load();
+    BOOST_LOG(info) << (enable ? "Enabling"sv : "Disabling"sv) << " Vibepollo system autostart";
+    run_lifecycle_action(enable ? "enable-autostart" : "disable-autostart", true, enable);
+  }
+#endif
+
+""",
+    )
+    replace_once(
+        root / "src/system_tray.cpp",
+        """        {.text = "Restart", .cb = tray_restart_cb},
+        {.text = "Quit", .cb = tray_quit_cb},
+        {.text = nullptr}""",
+        """        {.text = "Restart", .cb = tray_restart_cb},
+        {.text = "Quit", .cb = tray_quit_cb},
+#ifdef __linux__
+        {.text = "-"},
+        {.text = "Quit and stop services", .disabled = lifecycle_helper_available ? 0 : 1,
+         .cb = tray_quit_and_stop_services_cb},
+        {.text = "Start with system", .disabled = lifecycle_helper_available ? 0 : 1,
+         .checked = lifecycle_autostart_enabled.load() ? 1 : 0, .checkbox = 1,
+         .cb = tray_toggle_autostart_cb},
+#endif
+        {.text = nullptr}""",
+    )
+    insert_before_once(
+        root / "src/system_tray.cpp",
+        "  template<typename Fn>\n  static void run_on_tray_thread(Fn &&fn) {",
+        """#ifdef __linux__
+  static void update_lifecycle_tray_menu() {
+    if (!tray.menu) {
+      return;
+    }
+    const bool disabled = !lifecycle_helper_available || lifecycle_action_pending.load();
+    tray.menu[7].disabled = disabled ? 1 : 0;
+    tray.menu[8].disabled = disabled ? 1 : 0;
+    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
+    if (tray_initialized.load()) {
+      tray_update(&tray);
+    }
+  }
+#endif
+
+""",
+    )
+
     print("Applied the static peer-credential broker link fix.")
     print("Applied the PipeWire native NVENC device factory fix.")
     print("Applied the Linux AppIndicator shutdown cleanup fix.")
