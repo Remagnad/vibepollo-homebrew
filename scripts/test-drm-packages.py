@@ -298,6 +298,19 @@ checks = [
      (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
     ("tray actions use the trusted pkexec path rather than terminal sudo",
      '"/usr/bin/pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
+    ("quit-and-stop exits the app on every authorization or spawn failure",
+     'const bool quit_requested = action == "stop-after-pid";' in homebrew_patches_text and
+     'if (quit_requested) {\\n              lifetime::exit_sunshine(0, true);\\n            }' in homebrew_patches_text),
+    ("lifecycle shutdown treats zombie processes as already exited",
+     'process_is_exited "$pid"' in lifecycle_helper_text and
+     '[[ "${fields[0]}" == Z || "${fields[0]}" == X ]]' in lifecycle_helper_text),
+    ("desktop-session autostart invokes fixed pkexec and verifies helper ownership",
+     '[[ -x /usr/bin/pkexec ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '[[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '"/usr/bin/pkexec" "$LIFECYCLE_HELPER" start' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8")),
     ("VKMS unit has an opt-in boot target",
      "WantedBy=multi-user.target" in
      (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
