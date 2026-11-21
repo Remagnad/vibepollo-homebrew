@@ -273,7 +273,14 @@ checks = [
      "lifecycle_state_sha256" in lifecycle_helper_text),
     ("desktop launcher starts the managed pool on demand",
      "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
-     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%u' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%a' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     " & 0022" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
     ("desktop-session autostart uses trusted pkexec and a verified helper",
      '[[ -x /usr/bin/pkexec ]]' in
      (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
