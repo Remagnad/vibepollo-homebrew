@@ -271,6 +271,21 @@ checks = [
      "Quit and stop services" in homebrew_patches_text and
      "Start with system" in homebrew_patches_text and
      '"stop-after-pid"' in homebrew_patches_text),
+    ("tray lifecycle worker completions return through the GTK/GLib main context",
+     '#include <glib.h>' in homebrew_patches_text and
+     'g_idle_add_full(G_PRIORITY_DEFAULT' in homebrew_patches_text and
+     'dispatch_lifecycle_completion([action' in homebrew_patches_text),
+    ("tray lifecycle worker does not directly mutate GTK from its detached thread",
+     'run_on_tray_thread([action' not in homebrew_patches_text and
+     'run_lifecycle_completion(gpointer data)' in homebrew_patches_text),
+    ("opt-in autostart launches the host only after the desktop session starts",
+     'Comment=Start the Vibepollo streaming host with the graphical session' in
+     lifecycle_helper_text and
+     'Type=Application' in lifecycle_helper_text and
+     'exec "$app_prefix/bin/vibepollo"' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     'WantedBy=multi-user.target' in
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
     ("tray actions use the trusted pkexec path rather than terminal sudo",
      '"/usr/bin/pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
     ("VKMS unit has an opt-in boot target",
