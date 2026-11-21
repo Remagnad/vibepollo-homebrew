@@ -267,6 +267,13 @@ checks = [
     ("desktop launcher starts the managed pool on demand",
      "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
      (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+    ("desktop-session autostart uses trusted pkexec and a verified helper",
+     '[[ -x /usr/bin/pkexec ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '[[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '"/usr/bin/pkexec" "$LIFECYCLE_HELPER" start' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8")),
     ("tray lifecycle controls are patched into the Homebrew source build",
      "Quit and stop services" in homebrew_patches_text and
      "Start with system" in homebrew_patches_text and
