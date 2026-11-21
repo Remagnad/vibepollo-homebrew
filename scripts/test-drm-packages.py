@@ -74,16 +74,35 @@ url_match = re.search(r'^  url "([^"]+)"$', cask_text, re.MULTILINE)
 if not version_match or not sha_match or not url_match:
     raise SystemExit("Cask must define one version, URL and 64-character payload SHA-256")
 
-version = version_match.group(1)
-if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-    raise SystemExit(f"Invalid stable Cask version: {version!r}")
+full_cask_version = version_match.group(1)
+version_parts = re.fullmatch(
+    r"([0-9]+\\.[0-9]+\\.[0-9]+),([0-9a-f]{12})-([0-9a-f]{12})",
+    full_cask_version,
+)
+if not version_parts:
+    raise SystemExit(f"Invalid revision-qualified Cask version: {full_cask_version!r}")
+version = version_parts.group(1)
+app_formula_text = (root / "Formula/vibepollo-app.rb").read_text(encoding="utf-8")
+app_bottle_matches = re.findall(
+    r'^    sha256 x86_64_linux: "([0-9a-f]{64})"$',
+    app_formula_text,
+    re.MULTILINE,
+)
+if len(app_bottle_matches) != 1:
+    raise SystemExit("Expected exactly one x86_64 Linux application bottle checksum")
+expected_cask_version = f"{version},{app_bottle_matches[0][:12]}-{sha_match.group(1)[:12]}"
+if full_cask_version != expected_cask_version:
+    raise SystemExit(
+        f"Cask revision does not match the app bottle and integration payload: "
+        f"{full_cask_version} != {expected_cask_version}"
+    )
 expected_url_template = (
     'https://github.com/Remagnad/vibepollo-homebrew/releases/download/'
-    'vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz'
+    'vibepollo-#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz'
 )
 if url_match.group(1) != expected_url_template:
-    raise SystemExit("Cask URL must remain version-interpolated and point at the release payload")
-published_url = url_match.group(1).replace("#{version}", version)
+    raise SystemExit("Cask URL must use version.csv.first and point at the release payload")
+published_url = url_match.group(1).replace("#{version.csv.first}", version)
 
 def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
     source_matches = True
@@ -202,10 +221,13 @@ rendered_formula = (pathlib.Path(temp) / "Formula/vibepollo-drm.rb").read_text()
 rendered_cask = (pathlib.Path(temp) / "Casks/vibepollo.rb").read_text()
 if "vibepollo-source-9.8.7.tar.gz" not in rendered_formula or ("b" * 40) not in rendered_formula:
     raise SystemExit("DRM Formula source URL or libvirtualdisplay commit was not rendered")
-if 'version "9.8.7"' not in rendered_cask or archive_sha not in rendered_cask:
-    raise SystemExit("DRM Cask release metadata was not rendered")
-if '#{version}/vibepollo-drm-integration-#{version}.tar.gz' not in rendered_cask:
-    raise SystemExit("DRM Cask URL must use Homebrew version interpolation")
+expected_rendered_cask_version = (
+    f'  version "9.8.7,{app_bottle_matches[0][:12]}-{archive_sha[:12]}"'
+)
+if expected_rendered_cask_version not in rendered_cask or archive_sha not in rendered_cask:
+    raise SystemExit("DRM Cask release metadata or checksum-derived revision was not rendered")
+if '#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz' not in rendered_cask:
+    raise SystemExit("DRM Cask URL must use version.csv.first for version interpolation")
 
 formula_text = formula.read_text(encoding="utf-8")
 prepare_source_text = (root / "scripts/prepare-source.sh").read_text(encoding="utf-8")
@@ -216,6 +238,8 @@ uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 
 checks = [
+    ("legacy competing Cask publisher is removed",
+     not (root / ".github/workflows/publish-cask-payload.yml").exists()),
     ("Linux-specific libvirtualdisplay gitlink is fetched when present",
      "third-party/libvirtualdisplay-linux" in prepare_source_text),
     ("Homebrew patches the Linux-selected libvirtualdisplay source",

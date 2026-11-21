@@ -9,6 +9,7 @@ on:
       - "cask-payload/**"
       - "integration/**"
       - "scripts/package-cask-payload.sh"
+      - "scripts/render-drm-packages.py"
       - "scripts/test-drm-packages.py"
       - "scripts/migrate-installed-cask-sudo.py"
       - ".github/workflows/build-cask-integration.yml"

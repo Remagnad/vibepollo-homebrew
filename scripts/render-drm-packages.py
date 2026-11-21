@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 
 
 def replace_line(content: str, prefix: str, replacement: str, label: str) -> str:
@@ -42,47 +43,46 @@ def main() -> None:
     if not args.source_url.startswith(expected_prefix) or not args.cask_url.startswith(expected_prefix):
         raise SystemExit("Refusing an unexpected release asset URL.")
 
-    formula = pathlib.Path(args.formula_template).read_text(encoding="utf-8")
+    formula_path = pathlib.Path(args.formula_template)
+    formula = formula_path.read_text(encoding="utf-8")
     formula = replace_line(formula, "  url ", f'  url "{args.source_url}"', "Formula source URL")
     formula = replace_line(formula, "  sha256 ", f'  sha256 "{args.source_sha}"', "Formula source SHA-256")
     formula = replace_line(formula, "  LIBVIRTUALDISPLAY_COMMIT = ",
                             f'  LIBVIRTUALDISPLAY_COMMIT = "{args.libvirtualdisplay_commit}".freeze',
                             "libvirtualdisplay commit")
 
+    # Bump the Cask when either binary input changes, even if upstream keeps
+    # the same application version. Keep the first CSV value as the release URL.
+    app_formula_path = formula_path.with_name("vibepollo-app.rb")
+    if not app_formula_path.is_file():
+        raise SystemExit(f"Missing application Formula needed for the Cask revision: {app_formula_path}")
+    app_formula = app_formula_path.read_text(encoding="utf-8")
+    bottle_matches = re.findall(
+        r'^    sha256 x86_64_linux: "([0-9a-f]{64})"$',
+        app_formula,
+        re.MULTILINE,
+    )
+    if len(bottle_matches) != 1:
+        raise SystemExit(f"Expected exactly one x86_64 Linux app bottle SHA-256; found {len(bottle_matches)}")
+
+    cask_revision = f"{bottle_matches[0][:12]}-{args.cask_sha[:12]}"
+    cask_version = f"{args.version},{cask_revision}"
     cask = pathlib.Path(args.cask_template).read_text(encoding="utf-8")
-    bottle_match = __import__("re").search(r'^    sha256 x86_64_linux: "([0-9a-f]{64})"
-    cask = replace_line(cask, "  sha256 ", f'  sha256 "{args.cask_sha}"', "Cask payload SHA-256")
-    expected_cask_url = (f"https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-{args.version}/"
-                         f"vibepollo-drm-integration-{args.version}.tar.gz")
-    if args.cask_url != expected_cask_url:
-        raise SystemExit("Cask payload URL does not match the versioned release asset.")
-    if '  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz"' not in cask:
-        raise SystemExit("Cask template URL must remain version-interpolated for Homebrew audit.")
-
-    formula_output = pathlib.Path(args.formula_output)
-    cask_output = pathlib.Path(args.cask_output)
-    formula_output.parent.mkdir(parents=True, exist_ok=True)
-    cask_output.parent.mkdir(parents=True, exist_ok=True)
-    formula_output.write_text(formula, encoding="utf-8")
-    cask_output.write_text(cask, encoding="utf-8")
-    print(f"Rendered {formula_output}")
-    print(f"Rendered {cask_output}")
-
-
-if __name__ == "__main__":
-    main()
-, formula, __import__("re").MULTILINE)
-    if not bottle_match:
-        raise SystemExit("Could not determine the application bottle SHA-256 for the Cask revision.")
-    cask_version = f"{args.version},{bottle_match.group(1)[:12]}-{args.cask_sha[:12]}"
     cask = replace_line(cask, "  version ", f'  version "{cask_version}"', "Cask version")
     cask = replace_line(cask, "  sha256 ", f'  sha256 "{args.cask_sha}"', "Cask payload SHA-256")
-    expected_cask_url = (f"https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-{args.version}/"
-                         f"vibepollo-drm-integration-{args.version}.tar.gz")
+
+    expected_cask_url = (
+        f"https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-{args.version}/"
+        f"vibepollo-drm-integration-{args.version}.tar.gz"
+    )
     if args.cask_url != expected_cask_url:
         raise SystemExit("Cask payload URL does not match the versioned release asset.")
-    if '  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz"' not in cask:
-        raise SystemExit("Cask template URL must remain version-interpolated for Homebrew audit.")
+    expected_template = (
+        '  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/'
+        'vibepollo-#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz"'
+    )
+    if expected_template not in cask:
+        raise SystemExit("Cask URL must use version.csv.first to select the upstream release version.")
 
     formula_output = pathlib.Path(args.formula_output)
     cask_output = pathlib.Path(args.cask_output)
