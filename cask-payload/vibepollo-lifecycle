@@ -298,6 +298,18 @@ process_starttime() {
   printf '%s\n' "${fields[19]}"
 }
 
+
+process_is_exited() {
+  local pid="$1" stat_line rest
+  [[ -r "/proc/$pid/stat" ]] || return 0
+  IFS= read -r stat_line < "/proc/$pid/stat" || return 0
+  rest="${stat_line##*) }"
+  local -a fields=()
+  read -r -a fields <<< "$rest"
+  (("${#fields[@]}" >= 1)) || return 0
+  [[ "${fields[0]}" == Z || "${fields[0]}" == X ]]
+}
+
 stop_vibepollo_and_wait() {
   local pid="$1" real_uid effective_uid initial_start current_start process_exe app_prefix_real
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "stop-after-pid requires a valid PID"
@@ -325,7 +337,7 @@ stop_vibepollo_and_wait() {
   }
 
   for ((attempt = 0; attempt < 600; attempt++)); do
-    if [[ ! -r "/proc/$pid/stat" ]]; then
+    if [[ ! -r "/proc/$pid/stat" ]] || process_is_exited "$pid"; then
       log "the Vibepollo process exited cleanly"
       return 0
     fi
