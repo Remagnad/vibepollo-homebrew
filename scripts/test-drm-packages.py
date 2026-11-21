@@ -272,9 +272,10 @@ checks = [
      '"stop-after-pid"' in homebrew_patches_text),
     ("tray actions use pkexec rather than terminal sudo",
      '"pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
-    ("autostart is opt-in and starts the pool at boot",
+    ("VKMS unit has an opt-in boot target",
      "WantedBy=multi-user.target" in
-     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8") and
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
+    ("first installation defaults autostart to disabled",
      "PRIOR_AUTOSTART_ENABLED=0" in install_text),
     ("Cask helper ownership receipts use newline-separated checksums",
      "printf 'helper_%s_sha256=%s\\n'" in install_text),
