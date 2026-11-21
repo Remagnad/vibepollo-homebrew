@@ -234,6 +234,7 @@ if '#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz' 
 
 formula_text = formula.read_text(encoding="utf-8")
 prepare_source_text = (root / "scripts/prepare-source.sh").read_text(encoding="utf-8")
+prepare_debug_source_text = (root / ".github/scripts/prepare-debug-source.sh").read_text(encoding="utf-8")
 homebrew_patches_text = (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")
 cask_packager_text = (root / "scripts/package-cask-payload.sh").read_text(encoding="utf-8")
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
@@ -246,6 +247,10 @@ checks = [
      not (root / ".github/workflows/publish-cask-payload.yml").exists()),
     ("Linux-specific libvirtualdisplay gitlink is fetched when present",
      "third-party/libvirtualdisplay-linux" in prepare_source_text),
+    ("debug build fetches the Linux libvirtualdisplay gitlink before CMake",
+     "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
+     'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
+     'git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux' in prepare_debug_source_text),
     ("Homebrew patches the Linux-selected libvirtualdisplay source",
      'third-party/libvirtualdisplay-linux' in homebrew_patches_text and
      'libvirtualdisplay_root / "src/driver/CMakeLists.txt"' in homebrew_patches_text),
