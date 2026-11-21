@@ -56,7 +56,7 @@ jobs:
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           mkdir -p "$RUNNER_TEMP/vibepollo-source-check"
           SOURCE_DATE_EPOCH=0 bash scripts/prepare-source.sh \
-            "v$version" "$commit" \
+            "$version" "$commit" \
             "$RUNNER_TEMP/vibepollo-source-check/vibepollo-source.tar.gz"
           test -s "$RUNNER_TEMP/vibepollo-source-check/vibepollo-source.tar.gz"
 
