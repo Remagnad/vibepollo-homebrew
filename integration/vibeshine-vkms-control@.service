@@ -6,8 +6,7 @@ After=vibeshine-vkms.service
 [Service]
 Type=exec
 User=root
-# The app Formula sets this helper's PT_INTERP to the host loader before staging it.
-# Execute the bin_t helper directly; do not exec the ld_so_t loader as the service.
+# This helper is statically linked so ProtectHome=yes cannot hide its ELF loader.
 ExecStart=/var/lib/vibepollo/drm/bin/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control
 StandardInput=socket
 StandardOutput=socket
