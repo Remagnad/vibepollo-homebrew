@@ -383,7 +383,7 @@ checks = [
      '[[ "$existing_type" == "modules_object_t" ]]' in uninstall_text and
      'semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC"' in uninstall_text),
     ("SELinux module-label rule is removed only after module files are removed",
-     uninstall_text.find('remove_owned_module_selinux_fcontext') >
+     uninstall_text.rfind('remove_owned_module_selinux_fcontext') >
      uninstall_text.find('rm -f -- "$module_file"')),
     ("no incorrect sig_key/serial comparison", "modinfo -F sig_key" not in install_text + controller_text),
 ]
