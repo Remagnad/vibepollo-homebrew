@@ -235,7 +235,7 @@ cleanup() {
   rm -rf -- "$TMP_DIR"
   if [[ "$SELINUX_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
-    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred >/dev/null 2>&1 || true
+    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT HUP INT TERM
