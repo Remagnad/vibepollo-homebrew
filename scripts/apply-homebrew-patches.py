@@ -526,6 +526,12 @@ endif()""",
                                << action << ": " << std::strerror(wait_error);
             } else {
               BOOST_LOG(warning) << "Vibepollo lifecycle action was cancelled or failed: "sv << action;
+              // Even if graphical authorization is cancelled, honor the user's
+              // Quit and stop services request by exiting the app while leaving
+              // the already-running system integration untouched.
+              if (action == "stop-after-pid") {
+                lifetime::exit_sunshine(0, true);
+              }
             }
           } else {
             BOOST_LOG(info) << "Vibepollo lifecycle action completed: "sv << action;
