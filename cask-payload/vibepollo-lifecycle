@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+umask 077
+
+DRM_ROOT="/var/lib/vibepollo/drm"
+BIN_DIR="$DRM_ROOT/bin"
+STATE_DIR="$DRM_ROOT/state"
+INSTALL_STATE="$STATE_DIR/vibeshine-drm-install"
+LIFECYCLE_STATE="$STATE_DIR/vibepollo-lifecycle"
+POOL_UNIT="vibeshine-vkms.service"
+CONTROL_SOCKET="vibeshine-vkms-control.socket"
+MODULE_NAME="vibeshine_drm"
+DRMCTL="$BIN_DIR/vibeshine-drmctl"
+SELF="$BIN_DIR/vibepollo-lifecycle"
+USER_LAUNCH="$BIN_DIR/vibepollo-user-launch"
+AUTOSTART_NAME="vibepollo-homebrew.desktop"
+AUTOSTART_EXEC="$USER_LAUNCH"
+
+log() { printf 'vibepollo lifecycle: %s\n' "$*" >&2; }
+fail() { log "error: $*"; exit 1; }
+
+state_value() {
+  local file="$1" key="$2"
+  [[ -f "$file" && ! -L "$file" ]] || return 0
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$file"
+}
+
+require_root_directory() {
+  local path="$1" mode
+  [[ -d "$path" && ! -L "$path" ]] || fail "unsafe or missing directory: $path"
+  [[ "$(stat -c '%u' "$path")" == 0 ]] || fail "$path is not root-owned"
+  mode="$(stat -c '%a' "$path")"
+  (( (8#$mode & 0022) == 0 )) || fail "$path is writable by group or others"
+}
+
+require_root_file() {
+  local path="$1" mode
+  [[ -f "$path" && ! -L "$path" ]] || fail "unsafe or missing file: $path"
+  [[ "$(stat -c '%u' "$path")" == 0 ]] || fail "$path is not root-owned"
+  mode="$(stat -c '%a' "$path")"
+  (( (8#$mode & 0022) == 0 )) || fail "$path is writable by group or others"
+}
+
+bounded_systemctl() {
+  local limit="$1" description="$2" rc=0
+  shift 2
+  log "$description"
+  timeout --foreground --kill-after=5s "${limit}s" systemctl "$@" || rc=$?
+  if (( rc == 124 || rc == 137 )); then
+    fail "systemd timed out while $description"
+  elif (( rc != 0 )); then
+    fail "systemd failed while $description (exit $rc)"
+  fi
+}
+
+unit_is_active() {
+  local unit="$1" rc=0
+  systemctl is-active --quiet "$unit" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    3|4) return 1 ;;
+    *) fail "could not safely determine whether $unit is active (exit $rc)" ;;
+  esac
+}
+
+load_and_verify_state() {
+  local expected actual helper unit
+  require_root_directory /var
+  require_root_directory /var/lib
+  require_root_directory /var/lib/vibepollo
+  require_root_directory "$DRM_ROOT"
+  require_root_directory "$BIN_DIR"
+  require_root_directory "$STATE_DIR"
+  require_root_file "$INSTALL_STATE"
+  require_root_file "$LIFECYCLE_STATE"
+
+  DESKTOP_UID="$(state_value "$LIFECYCLE_STATE" desktop_uid)"
+  APP_PREFIX="$(state_value "$LIFECYCLE_STATE" app_prefix)"
+  AUTOSTART_ENABLED="$(state_value "$LIFECYCLE_STATE" autostart_enabled)"
+  AUTOSTART_SHA="$(state_value "$LIFECYCLE_STATE" autostart_sha256)"
+  [[ "$DESKTOP_UID" =~ ^[1-9][0-9]*$ ]] || fail "invalid desktop UID in lifecycle state"
+  [[ "$APP_PREFIX" == /* && "$APP_PREFIX" != *$'\n'* ]] || fail "invalid app Formula prefix in lifecycle state"
+  [[ "$AUTOSTART_ENABLED" == 0 || "$AUTOSTART_ENABLED" == 1 ]] || fail "invalid autostart state"
+  [[ "$AUTOSTART_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "invalid autostart desktop-file checksum"
+
+  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+    [[ -f "$BIN_DIR/$helper" && ! -L "$BIN_DIR/$helper" ]] || fail "installed helper is missing: $helper"
+    expected="$(state_value "$INSTALL_STATE" "helper_${helper}_sha256")"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "Cask ownership checksum is missing for $helper"
+    actual="$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || fail "$helper differs from the Cask-owned version"
+  done
+
+  for unit in "$POOL_UNIT" "$CONTROL_SOCKET" "vibeshine-vkms-control@.service"; do
+    [[ -f "/etc/systemd/system/$unit" && ! -L "/etc/systemd/system/$unit" ]] || fail "installed systemd unit is missing or unsafe: $unit"
+    expected="$(state_value "$INSTALL_STATE" "unit_${unit}_sha256")"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "Cask ownership checksum is missing for $unit"
+    actual="$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || fail "$unit differs from the Cask-owned version"
+  done
+
+  [[ -x "$APP_PREFIX/bin/vibepollo" ]] || fail "Vibepollo app Formula is not available at $APP_PREFIX"
+  command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
+  command -v timeout >/dev/null 2>&1 || fail "timeout is required"
+  command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
+}
+
+resolve_desktop_user() {
+  local entry
+  entry="$(getent passwd "$DESKTOP_UID")" || fail "could not resolve the installed desktop account (UID $DESKTOP_UID)"
+  IFS=: read -r DESKTOP_USER _ RESOLVED_UID DESKTOP_GID _ DESKTOP_HOME _ <<< "$entry"
+  [[ "$RESOLVED_UID" == "$DESKTOP_UID" && "$DESKTOP_USER" != root ]] || fail "desktop account identity is invalid"
+  [[ "$DESKTOP_HOME" == /* && -d "$DESKTOP_HOME" ]] || fail "desktop account home directory is unavailable"
+  [[ "$DESKTOP_HOME" != "/" ]] || fail "refusing to use the filesystem root as a home directory"
+  AUTOSTART_DIR="$DESKTOP_HOME/.config/autostart"
+  AUTOSTART_FILE="$AUTOSTART_DIR/$AUTOSTART_NAME"
+}
+
+verify_invoking_user() {
+  local invoking_uid="${PKEXEC_UID:-${SUDO_UID:-}}"
+  [[ "$invoking_uid" =~ ^[1-9][0-9]*$ ]] || fail "run this command through pkexec from the installed desktop account"
+  [[ "$invoking_uid" == "$DESKTOP_UID" ]] || fail "this integration belongs to desktop UID $DESKTOP_UID, not UID $invoking_uid"
+}
+
+desktop_entry() {
+  cat <<EOF
+[Desktop Entry]
+Type=Application
+Name=Vibepollo
+Comment=Start the Vibepollo streaming host with the graphical session
+Exec=$AUTOSTART_EXEC
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+}
+
+expected_autostart_sha() {
+  desktop_entry | sha256sum | awk '{print $1}'
+}
+
+install_autostart_entry() {
+  local expected tmp actual owner
+  expected="$(expected_autostart_sha)"
+  [[ "$expected" == "$AUTOSTART_SHA" ]] || fail "desktop autostart definition does not match its recorded checksum"
+
+  resolve_desktop_user
+  if [[ -e "$AUTOSTART_FILE" || -L "$AUTOSTART_FILE" ]]; then
+    [[ -f "$AUTOSTART_FILE" && ! -L "$AUTOSTART_FILE" ]] || fail "refusing to replace an unsafe autostart entry: $AUTOSTART_FILE"
+    owner="$(stat -c '%u' "$AUTOSTART_FILE")"
+    actual="$(sha256sum "$AUTOSTART_FILE" | awk '{print $1}')"
+    [[ "$owner" == "$DESKTOP_UID" && "$actual" == "$expected" ]] ||
+      fail "an existing $AUTOSTART_NAME is not owned by this Cask; preserving it"
+    log "the desktop autostart entry is already installed"
+    return 0
+  fi
+
+  tmp="$(mktemp /run/vibepollo-autostart.XXXXXX)"
+  trap 'rm -f -- "$tmp"' RETURN
+  desktop_entry > "$tmp"
+  chmod 0644 "$tmp"
+  runuser -u "$DESKTOP_USER" -- install -d -m 0755 "$AUTOSTART_DIR"
+  runuser -u "$DESKTOP_USER" -- install -m 0644 "$tmp" "$AUTOSTART_FILE"
+  [[ "$(stat -c '%u' "$AUTOSTART_FILE")" == "$DESKTOP_UID" ]] || fail "autostart entry was not created for the desktop user"
+  [[ "$(sha256sum "$AUTOSTART_FILE" | awk '{print $1}')" == "$expected" ]] || fail "autostart entry verification failed"
+  rm -f -- "$tmp"
+  trap - RETURN
+  log "installed the per-user XDG autostart entry"
+}
+
+remove_autostart_entry() {
+  local expected owner actual
+  resolve_desktop_user
+  if [[ ! -e "$AUTOSTART_FILE" && ! -L "$AUTOSTART_FILE" ]]; then
+    log "the desktop autostart entry is already absent"
+    return 0
+  fi
+  [[ -f "$AUTOSTART_FILE" && ! -L "$AUTOSTART_FILE" ]] || fail "refusing to remove an unsafe autostart entry"
+  owner="$(stat -c '%u' "$AUTOSTART_FILE")"
+  actual="$(sha256sum "$AUTOSTART_FILE" | awk '{print $1}')"
+  expected="$(expected_autostart_sha)"
+  [[ "$owner" == "$DESKTOP_UID" && "$actual" == "$expected" && "$actual" == "$AUTOSTART_SHA" ]] ||
+    fail "the desktop autostart entry was changed outside this Cask; preserving it"
+  runuser -u "$DESKTOP_USER" -- rm -- "$AUTOSTART_FILE"
+  rmdir "$AUTOSTART_DIR" 2>/dev/null || true
+  rmdir "$DESKTOP_HOME/.config" 2>/dev/null || true
+  log "removed the Cask-owned desktop autostart entry"
+}
+
+update_lifecycle_state() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")"
+  awk -F= -v key="$key" -v value="$value" '
+    BEGIN { OFS = "="; seen = 0 }
+    $1 == key { print key, value; seen = 1; next }
+    { print }
+    END { if (!seen) print key, value }
+  ' "$LIFECYCLE_STATE" > "$tmp"
+  chown root:root "$tmp"
+  chmod 0644 "$tmp"
+  mv -f -- "$tmp" "$LIFECYCLE_STATE"
+}
+
+start_pool() {
+  if unit_is_active "$POOL_UNIT"; then
+    log "the Vibeshine pool is already active"
+    return 0
+  fi
+  bounded_systemctl 45 "starting $POOL_UNIT" start "$POOL_UNIT"
+  unit_is_active "$POOL_UNIT" || fail "$POOL_UNIT did not become active"
+  log "the virtual-display pool and its DRM module are ready"
+}
+
+stop_pool_and_module() {
+  local rc=0 managed token loaded_token refcount
+  if unit_is_active "$POOL_UNIT"; then
+    bounded_systemctl 45 "stopping $POOL_UNIT" stop "$POOL_UNIT"
+  fi
+  if unit_is_active "$CONTROL_SOCKET"; then
+    bounded_systemctl 20 "stopping $CONTROL_SOCKET" stop "$CONTROL_SOCKET"
+  fi
+  if unit_is_active "$POOL_UNIT" || unit_is_active "$CONTROL_SOCKET"; then
+    fail "the Vibeshine service stack did not stop completely"
+  fi
+  log "the virtual-display pool and control socket are stopped"
+
+  if [[ ! -d "/sys/module/$MODULE_NAME" ]]; then
+    log "the DRM module is not loaded"
+    return 0
+  fi
+
+  managed="$(state_value "$INSTALL_STATE" managed_load)"
+  token="$(state_value "$INSTALL_STATE" load_token)"
+  loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+  if [[ "$managed" != 1 || ! "$token" =~ ^[0-9a-f]{64}$ || "$loaded_token" != "$token" ]]; then
+    log "the DRM module is not verified as Cask-managed; leaving it loaded"
+    return 0
+  fi
+
+  log "attempting to unload the verified Cask-managed DRM module"
+  timeout --foreground --kill-after=5s 15s "$DRMCTL" unload || rc=$?
+  if (( rc == 0 )); then
+    log "the Cask-managed DRM module was unloaded"
+    return 0
+  fi
+  refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
+  [[ "$refcount" =~ ^[0-9]+$ ]] || refcount=unknown
+  log "the pool is stopped, but the DRM module remains loaded (refcount $refcount); the compositor or another client may still hold it"
+  return 2
+}
+
+process_starttime() {
+  local pid="$1" stat_line rest
+  [[ -r "/proc/$pid/stat" ]] || return 1
+  IFS= read -r stat_line < "/proc/$pid/stat" || return 1
+  rest="${stat_line##*) }"
+  local -a fields=()
+  read -r -a fields <<< "$rest"
+  (("${#fields[@]}" >= 20)) || return 1
+  printf '%s\n' "${fields[19]}"
+}
+
+wait_for_invoking_process() {
+  local pid="$1" process_uid initial_start current_start real_uid effective_uid
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "stop-after-pid requires a valid PID"
+  if [[ ! -d "/proc/$pid" ]]; then
+    log "the Vibepollo process already exited"
+    return 0
+  fi
+  read -r real_uid effective_uid < <(awk '/^Uid:/ { print $2, $3; exit }' "/proc/$pid/status")
+  [[ "$real_uid" == "$DESKTOP_UID" && "$effective_uid" == "$DESKTOP_UID" ]] ||
+    fail "PID $pid is not owned by the installed desktop account"
+  initial_start="$(process_starttime "$pid")" || {
+    log "the Vibepollo process exited before its identity could be read"
+    return 0
+  }
+
+  for ((attempt = 0; attempt < 600; attempt++)); do
+    if [[ ! -r "/proc/$pid/stat" ]]; then
+      log "the Vibepollo process exited cleanly"
+      return 0
+    fi
+    current_start="$(process_starttime "$pid" 2>/dev/null || true)"
+    if [[ -z "$current_start" || "$current_start" != "$initial_start" ]]; then
+      log "the original Vibepollo process has exited"
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "timed out waiting for Vibepollo PID $pid to exit; services were left running"
+}
+
+enable_autostart() {
+  local was_enabled=0 enabled_state
+  enabled_state="$(systemctl is-enabled "$POOL_UNIT" 2>/dev/null || true)"
+  [[ "$enabled_state" == enabled ]] && was_enabled=1
+  bounded_systemctl 30 "enabling the Vibeshine pool at boot" enable "$POOL_UNIT"
+  if ! install_autostart_entry; then
+    if (( was_enabled == 0 )); then
+      systemctl disable "$POOL_UNIT" >/dev/null 2>&1 || true
+    fi
+    return 1
+  fi
+  update_lifecycle_state autostart_enabled 1
+  log "autostart enabled; the current session was not changed"
+}
+
+disable_autostart() {
+  local was_enabled=0
+  if [[ "$AUTOSTART_ENABLED" != 1 ]]; then
+    log "autostart is already disabled"
+    return 0
+  fi
+  [[ "$(systemctl is-enabled "$POOL_UNIT" 2>/dev/null || true)" == enabled ]] && was_enabled=1
+  bounded_systemctl 30 "disabling the Vibeshine pool at boot" disable "$POOL_UNIT"
+  if ! remove_autostart_entry; then
+    if (( was_enabled == 1 )); then
+      systemctl enable "$POOL_UNIT" >/dev/null 2>&1 || true
+    fi
+    return 1
+  fi
+  update_lifecycle_state autostart_enabled 0
+  log "autostart disabled; any services already running were left untouched"
+}
+
+show_status() {
+  printf 'Autostart: %s\n' "$([[ "$AUTOSTART_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+  if unit_is_active "$POOL_UNIT"; then
+    printf 'Vibeshine pool: active\n'
+  else
+    printf 'Vibeshine pool: inactive\n'
+  fi
+  if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+    printf 'DRM module: loaded\n'
+  else
+    printf 'DRM module: unloaded\n'
+  fi
+}
+
+[[ "$EUID" -eq 0 ]] || fail "this helper must be invoked through pkexec"
+load_and_verify_state
+verify_invoking_user
+resolve_desktop_user
+
+action="${1:-}"
+case "$action" in
+  start)
+    [[ "$#" -eq 1 ]] || fail "start does not accept additional arguments"
+    start_pool
+    ;;
+  stop)
+    [[ "$#" -eq 1 ]] || fail "stop does not accept additional arguments"
+    stop_pool_and_module
+    ;;
+  stop-after-pid)
+    [[ "$#" -eq 2 ]] || fail "usage: stop-after-pid PID"
+    wait_for_invoking_process "$2"
+    stop_pool_and_module
+    ;;
+  enable-autostart)
+    [[ "$#" -eq 1 ]] || fail "enable-autostart does not accept additional arguments"
+    enable_autostart
+    ;;
+  disable-autostart)
+    [[ "$#" -eq 1 ]] || fail "disable-autostart does not accept additional arguments"
+    disable_autostart
+    ;;
+  status)
+    [[ "$#" -eq 1 ]] || fail "status does not accept additional arguments"
+    show_status
+    ;;
+  *)
+    fail "usage: pkexec $SELF {start|stop|stop-after-pid PID|enable-autostart|disable-autostart|status}"
+    ;;
+esac
