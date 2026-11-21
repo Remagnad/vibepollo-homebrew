@@ -292,6 +292,11 @@ checks = [
      "Quit and stop services" in homebrew_patches_text and
      "Start with system" in homebrew_patches_text and
      '"stop-after-pid"' in homebrew_patches_text),
+    ("tray lifecycle menu uses a named static-storage array",
+     "static struct tray_menu vibepollo_tray_menu[]" in homebrew_patches_text and
+     ".menu = vibepollo_tray_menu" in homebrew_patches_text and
+     "tray.menu[7].disabled = lifecycle_helper_available ? 0 : 1;" in homebrew_patches_text and
+     "tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;" in homebrew_patches_text),
     ("tray lifecycle worker completions return through the GTK/GLib main context",
      '#include <glib.h>' in homebrew_patches_text and
      'g_idle_add_full(G_PRIORITY_DEFAULT' in homebrew_patches_text and
