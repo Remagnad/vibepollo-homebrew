@@ -115,7 +115,7 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl"):
+                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
                     source_path = payload_dir / member.name
                 elif member.name in payload_files[-3:]:
                     source_path = integration_dir / member.name
@@ -251,6 +251,24 @@ checks = [
     ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask does not capture an askpass path through stdout_path", "stdout_path" not in cask_text),
+    ("lifecycle helper is installed with the runtime integration",
+     "vibepollo-lifecycle" in install_text and "vibepollo-lifecycle" in uninstall_text and
+     "vibepollo-lifecycle" in cask_packager_text),
+    ("desktop launcher starts the managed pool on demand",
+     "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+    ("tray lifecycle controls are patched into the Homebrew source build",
+     "Quit and stop services" in homebrew_patches_text and
+     "Start with system" in homebrew_patches_text and
+     '"stop-after-pid"' in homebrew_patches_text),
+    ("tray actions use pkexec rather than terminal sudo",
+     '"pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
+    ("autostart is opt-in and starts the pool at boot",
+     "WantedBy=multi-user.target" in
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8") and
+     "autostart_enabled=0" in install_text),
+    ("Cask helper ownership receipts use newline-separated checksums",
+     "printf 'helper_%s_sha256=%s\\n'" in install_text),
     ("Cask installer runs as root through Homebrew preflight steps", "preflight_steps do" in cask_text and 'run "install.sh"' in cask_text and "sudo: true" in cask_text and '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask installer script does not self-elevate", "exec sudo" not in install_text and "sudo -v" not in install_text and '[[ "$EUID" -eq 0 ]]' in install_text),
     ("Cask install completion verifies root-owned state", "STATE_FILE=" in (payload_dir / "install-complete.sh").read_text(encoding="utf-8") and 'stat -c \'%u\' "$STATE_FILE"' in (payload_dir / "install-complete.sh").read_text(encoding="utf-8")),
