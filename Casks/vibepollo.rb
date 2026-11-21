@@ -65,8 +65,10 @@ cask "vibepollo" do
     The pool units and broker are installed but remain stopped and
     disabled at boot by default. Starting Vibepollo from its Homebrew
     launcher starts the managed pool on demand through graphical
-    authorization. The tray menu also provides "Quit and stop services"
-    and the opt-in "Start with system" setting. Autostart remains disabled
+    authorization. These graphical controls require PolicyKit's
+    /usr/bin/pkexec; without it, use the manual systemctl commands below.
+    The tray menu also provides "Quit and stop services" and the opt-in
+    "Start with system" setting. Autostart remains disabled
     until you enable it from the tray. The control socket is restricted to
     the desktop user who invoked the Cask installer, through that user's
     private primary group while keeping the socket itself root-owned.
