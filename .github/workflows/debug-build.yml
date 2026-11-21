@@ -211,6 +211,15 @@ jobs:
             exit 1
           fi
           printf 'Installing %s Homebrew dependencies (including build dependencies).\n' "${#dependencies[@]}"
+          # The restored Homebrew prefix may contain an older linked keg
+          # from the dependency cache. Upgrade installed dependencies first
+          # so Homebrew unlinks their previous versions cleanly before linking
+          # the bottles required by this source build.
+          for dependency in "${dependencies[@]}"; do
+            if brew list --versions "$dependency" >/dev/null 2>&1; then
+              brew upgrade --formula "$dependency"
+            fi
+          done
           if brew list --versions cmake >/dev/null 2>&1; then
             brew unlink cmake || true
           fi
