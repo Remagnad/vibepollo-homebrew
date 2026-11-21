@@ -275,6 +275,9 @@ checks = [
      '#include <glib.h>' in homebrew_patches_text and
      'g_idle_add_full(G_PRIORITY_DEFAULT' in homebrew_patches_text and
      'dispatch_lifecycle_completion([action' in homebrew_patches_text),
+    ("Homebrew C++ tray target explicitly receives GLib headers and linkage",
+     'pkg_check_modules(VIBEPOLLO_GLIB REQUIRED IMPORTED_TARGET glib-2.0)' in homebrew_patches_text and
+     'target_link_libraries(sunshine PkgConfig::VIBEPOLLO_GLIB)' in homebrew_patches_text),
     ("tray lifecycle worker does not directly mutate GTK from its detached thread",
      'run_on_tray_thread([action' not in homebrew_patches_text and
      'run_lifecycle_completion(gpointer data)' in homebrew_patches_text),
