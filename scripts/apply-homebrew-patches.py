@@ -444,7 +444,8 @@ endif()""",
 
     bool lifecycle_helper_is_cask_owned() {
       struct stat st {};
-      if (::lstat(VIBEPOLLO_LIFECYCLE_HELPER, &st) != 0) {
+      if (::access("/usr/bin/pkexec", X_OK) != 0 ||
+          ::lstat(VIBEPOLLO_LIFECYCLE_HELPER, &st) != 0) {
         return false;
       }
       return S_ISREG(st.st_mode) && st.st_uid == 0 &&
@@ -478,10 +479,11 @@ endif()""",
 
   static void run_lifecycle_action(std::string action, bool update_autostart, bool desired_autostart) {
     if (!lifecycle_helper_available) {
-      BOOST_LOG(warning) << "The Vibepollo Homebrew lifecycle integration is not installed"sv;
+      BOOST_LOG(warning) << "The Vibepollo Homebrew lifecycle integration or /usr/bin/pkexec is unavailable"sv;
       return;
     }
 
+    const bool quit_requested = action == "stop-after-pid";
     bool expected = false;
     if (!lifecycle_action_pending.compare_exchange_strong(expected, true)) {
       BOOST_LOG(info) << "A Vibepollo lifecycle action is already running"sv;
@@ -490,7 +492,7 @@ endif()""",
     update_lifecycle_tray_menu();
 
     try {
-      std::thread([action = std::move(action), update_autostart, desired_autostart]() {
+      std::thread([action = std::move(action), update_autostart, desired_autostart, quit_requested]() {
         std::string helper = VIBEPOLLO_LIFECYCLE_HELPER;
         std::string action_arg = action;
         std::string pid_arg;
@@ -520,7 +522,7 @@ endif()""",
           }
         }
 
-        dispatch_lifecycle_completion([action, update_autostart, desired_autostart, success, spawn_error, wait_error]() {
+        dispatch_lifecycle_completion([action, update_autostart, desired_autostart, quit_requested, success, spawn_error, wait_error]() {
           if (success && update_autostart) {
             lifecycle_autostart_enabled.store(desired_autostart);
           }
@@ -535,12 +537,11 @@ endif()""",
                                << action << ": " << std::strerror(wait_error);
             } else {
               BOOST_LOG(warning) << "Vibepollo lifecycle action was cancelled or failed: "sv << action;
-              // Even if graphical authorization is cancelled, honor the user's
-              // Quit and stop services request by exiting the app while leaving
-              // the already-running system integration untouched.
-              if (action == "stop-after-pid") {
-                lifetime::exit_sunshine(0, true);
-              }
+            }
+            // Quit means quit even if polkit is unavailable or authorization
+            // is cancelled. The system service stack remains untouched.
+            if (quit_requested) {
+              lifetime::exit_sunshine(0, true);
             }
           } else {
             BOOST_LOG(info) << "Vibepollo lifecycle action completed: "sv << action;
@@ -551,6 +552,9 @@ endif()""",
       lifecycle_action_pending.store(false);
       update_lifecycle_tray_menu();
       BOOST_LOG(error) << "Could not start the lifecycle authorization worker: "sv << exception.what();
+      if (quit_requested) {
+        lifetime::exit_sunshine(0, true);
+      }
     }
   }
 
