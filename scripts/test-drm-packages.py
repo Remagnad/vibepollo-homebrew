@@ -76,7 +76,7 @@ if not version_match or not sha_match or not url_match:
 
 full_cask_version = version_match.group(1)
 version_parts = re.fullmatch(
-    r"([0-9]+\\.[0-9]+\\.[0-9]+),([0-9a-f]{12})-([0-9a-f]{12})",
+    r"([0-9]+\.[0-9]+\.[0-9]+),([0-9a-f]{12})-([0-9a-f]{12})",
     full_cask_version,
 )
 if not version_parts:
