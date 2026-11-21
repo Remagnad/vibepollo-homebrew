@@ -38,6 +38,8 @@ for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-com
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
     subprocess.run(["bash", "-n", str(path)], check=True)
+launcher_script = root / "scripts/vibepollo-launcher.sh"
+subprocess.run(["sh", "-n", str(launcher_script)], check=True)
 for name in payload_files[-3:]:
     path = integration_dir / name
     if not path.is_file() or path.is_symlink():
@@ -282,7 +284,9 @@ checks = [
     ("unencrypted-key validation", "-passin pass:" in install_text),
     ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
     ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
-    ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
+    ("systemd pool autostart is opt-in", "WantedBy=multi-user.target" in
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8") and
+     "autostart_enabled=0" in install_text),
     ("Cask does not start or enable services", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
     ("no service activation", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
