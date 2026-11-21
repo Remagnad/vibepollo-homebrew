@@ -61,6 +61,12 @@ submodules=(
     third-party/wlr-protocols
 )
 
+# Recent stable releases split Linux libvirtualdisplay into its own gitlink.
+# CMake requires this exact Linux tree; the legacy shared module is not a substitute.
+if git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux | grep -q '^160000 commit '; then
+    submodules+=(third-party/libvirtualdisplay-linux)
+fi
+
 echo "::group::Fetch pinned top-level submodules"
 git -C "$source_dir" -c protocol.version=2 -c submodule.fetchJobs=8 submodule update --init --depth=1 --jobs 8 -- "${submodules[@]}"
 for path in "${submodules[@]}"; do

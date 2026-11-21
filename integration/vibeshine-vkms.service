@@ -18,4 +18,6 @@ TimeoutStartSec=30s
 TimeoutStopSec=30s
 UMask=0022
 
-# Intentionally no [Install] section: the Cask never enables this at boot.
+# Enabled only when the user opts into Start with system.
+[Install]
+WantedBy=multi-user.target

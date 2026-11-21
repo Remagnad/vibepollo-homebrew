@@ -62,17 +62,21 @@ cask "vibepollo" do
     never generates keys, imports certificates, or requests enrollment.
 
     The module is signed and installed for the currently running kernel.
-    The pool units and broker are installed, but neither service is started
-    nor enabled at boot. The control socket is restricted to the desktop user
-    who invoked the Cask installer, through that user's private primary
-    group while keeping the socket itself root-owned. Start the pool only
-    when needed with:
+    The pool units and broker are installed but remain stopped and
+    disabled at boot by default. Starting Vibepollo from its Homebrew
+    launcher starts the managed pool on demand through graphical
+    authorization. These graphical controls require PolicyKit's
+    /usr/bin/pkexec and an active graphical authentication agent; without
+    them, use the manual systemctl commands below.
+    The tray menu also provides "Quit and stop services" and the opt-in
+    "Start with system" setting. Autostart remains disabled
+    until you enable it from the tray. The control socket is restricted to
+    the desktop user who invoked the Cask installer, through that user's
+    private primary group while keeping the socket itself root-owned.
+
+    For manual administration, the pool can still be managed with:
 
       sudo systemctl start vibeshine-vkms.service
-
-    This starts the virtual-display pool and loads the module through
-    vibeshine-drmctl if it is not already loaded. To stop the pool:
-
       sudo systemctl stop vibeshine-vkms.service
 
     To inspect module ownership and status:

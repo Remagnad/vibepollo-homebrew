@@ -152,4 +152,25 @@ if [ -n "$ldconfig_bin" ]; then
   fi
 fi
 
+# Starting the Homebrew app manually also starts the managed virtual-display
+# stack. Keep CLI version/help probes side-effect free.
+if [ "${1:-}" != "--version" ] && [ "${1:-}" != "--help" ] &&
+   [ -x /var/lib/vibepollo/drm/bin/vibepollo-lifecycle ] &&
+   [ -f /var/lib/vibepollo/drm/state/vibepollo-lifecycle ] &&
+   [ ! -L /var/lib/vibepollo/drm/bin/vibepollo-lifecycle ] &&
+   [ "$(stat -c '%u' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle 2>/dev/null || echo invalid)" = 0 ] &&
+   [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
+   [ "$(stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo invalid)" = 0 ] &&
+   [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
+   ! systemctl is-active --quiet vibeshine-vkms.service; then
+  if [ ! -x /usr/bin/pkexec ]; then
+    echo "vibepollo: pkexec is required to start the managed virtual-display services" >&2
+    exit 1
+  fi
+  /usr/bin/pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start || {
+    echo "vibepollo: could not start the managed virtual-display services; launch cancelled" >&2
+    exit 1
+  }
+fi
+
 exec "$formula_prefix/libexec/vibepollo-bin" "$@"

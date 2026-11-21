@@ -65,7 +65,13 @@ sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl status
 sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl unload
 \`\`\`
 
-The module is never loaded automatically and no service is enabled at boot. The controller records when it loads the module. On Cask uninstall, only a matching module loaded through that controller is unloaded automatically. If the module was loaded manually or by another package, unload it explicitly first; the uninstaller refuses to unload an untracked or different module. The Cask removes its module and controller files but preserves \`/var/lib/vibepollo/drm/keys\`. Kernel-version changes require rebuilding and reinstalling the Formula and Cask until DKMS support is implemented.
+The Cask does not load the module or enable services during installation. When you launch Vibepollo from the Homebrew launcher, it requests graphical authorization through \`/usr/bin/pkexec\` and starts the managed virtual-display pool if it is not already active. The graphical lifecycle controls require PolicyKit's \`/usr/bin/pkexec\` and an active graphical PolicyKit authentication agent in the desktop session. Without it, the app remains installed, but on-demand privileged actions and the tray lifecycle controls are unavailable; you can start the pool manually with \`sudo systemctl start vibeshine-vkms.service\`. The tray menu provides:
+
+- **Quit** — exits Vibepollo and leaves the system integration running.
+- **Quit and stop services** — exits gracefully, stops the virtual-display pool, then attempts to unload only the verified Cask-managed module. If the compositor still holds the module, it is left loaded.
+- **Start with system** — an opt-in checkbox, disabled on first installation. When enabled, the VKMS pool starts during boot and Vibepollo launches with the graphical session. Turning it off affects the next boot/login but does not stop the current session.
+
+The controller records when it loads the module. On Cask uninstall, only a matching module loaded through that controller is unloaded automatically. If the module was loaded manually or by another package, the uninstaller refuses to unload it. The Cask removes its module, helpers, services and owned autostart state but preserves \`/var/lib/vibepollo/drm/keys\`. Kernel-version changes require rebuilding and reinstalling the Formula and Cask until DKMS support is implemented.
 
 Static checks can be run with:
 

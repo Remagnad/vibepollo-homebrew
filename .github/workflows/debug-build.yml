@@ -6,18 +6,28 @@ on:
       source_ref:
         description: Upstream Nonary/Vibepollo tag, branch or commit
         required: true
-        default: "2.0.6"
+        default: "2.18.9"
         type: string
       version:
         description: Build version used for packaging (numeric x.y.z)
         required: true
-        default: "2.0.6"
+        default: "2.18.9"
         type: string
       expected_commit:
         description: Expected full upstream commit SHA (leave empty to accept the resolved ref)
         required: false
-        default: "5e6ed8594184212d429bb093d7fd47904c9a6fa6"
+        default: "c286d08628ea059d013e94c65869e4260576d2d0"
         type: string
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/debug-build.yml"
+      - "scripts/prepare-source.sh"
+      - "scripts/apply-homebrew-patches.py"
+      - "scripts/vibepollo-launcher.sh"
+      - ".github/scripts/prepare-debug-source.sh"
+      - "Formula/vibepollo-app.rb"
 
 permissions:
   actions: write
@@ -45,13 +55,20 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Validate build inputs
+        id: build-inputs
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           SOURCE_REF_INPUT: ${{ inputs.source_ref }}
           VERSION_INPUT: ${{ inputs.version }}
           EXPECTED_COMMIT_INPUT: ${{ inputs.expected_commit }}
         run: |
           set -Eeuo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            VERSION_INPUT="$(tr -d '[:space:]' < upstream-version)"
+            SOURCE_REF_INPUT="$VERSION_INPUT"
+            EXPECTED_COMMIT_INPUT="$(tr -d '[:space:]' < upstream-commit)"
+          fi
           [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Version must use numeric x.y.z format."
             exit 1
@@ -69,6 +86,7 @@ jobs:
             echo "BUILD_VERSION=$VERSION_INPUT"
             echo "EXPECTED_COMMIT=$EXPECTED_COMMIT_INPUT"
           } >> "$GITHUB_ENV"
+          echo "version=$VERSION_INPUT" >> "$GITHUB_OUTPUT"
 
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
@@ -194,6 +212,25 @@ jobs:
             exit 1
           fi
           printf 'Installing %s Homebrew dependencies (including build dependencies).\n' "${#dependencies[@]}"
+          # The restored Homebrew prefix may contain older linked kegs
+          # from the dependency cache. Upgrade only outdated dependencies in
+          # one Homebrew transaction so previous kegs are cleanly unlinked
+          # before the bottles required by this source build are linked.
+          mapfile -t outdated_formulas < <(brew outdated --formula --quiet)
+          declare -A outdated_formula_set=()
+          for outdated_formula in "${outdated_formulas[@]}"; do
+            outdated_formula_set["$outdated_formula"]=1
+          done
+          outdated_dependencies=()
+          for dependency in "${dependencies[@]}"; do
+            if [[ "${outdated_formula_set[$dependency]:-0}" == 1 ]]; then
+              outdated_dependencies+=("$dependency")
+            fi
+          done
+          if (("${#outdated_dependencies[@]}" > 0)); then
+            printf 'Upgrading %s outdated cached dependencies before the source build.\n' "${#outdated_dependencies[@]}"
+            brew upgrade --formula "${outdated_dependencies[@]}"
+          fi
           if brew list --versions cmake >/dev/null 2>&1; then
             brew unlink cmake || true
           fi
@@ -477,7 +514,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: vibepollo-debug-linux-x86_64-${{ inputs.version }}-${{ github.run_number }}
+          name: vibepollo-debug-linux-x86_64-${{ steps.build-inputs.outputs.version }}-${{ github.run_number }}
           path: |
             dist/vibepollo-debug-linux-x86_64-*.tar.gz
             dist/vibepollo-debug-linux-x86_64-*.sha256

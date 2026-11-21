@@ -57,16 +57,18 @@ grep -Fq 'SocketMode=0660' "$integration_dir/vibeshine-vkms-control.socket"
 grep -Fq 'ExecStart=/var/lib/vibepollo/drm/bin/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control' "$integration_dir/vibeshine-vkms-control@.service"
 grep -Fq 'SOCKET_GROUP="$(id -gn "$SOCKET_USER")"' "$tmp/install.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
+cp "$payload_dir/vibepollo-lifecycle" "$tmp/vibepollo-lifecycle"
+cp "$payload_dir/vibepollo-user-launch" "$tmp/vibepollo-user-launch"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
 done
-chmod 0755 "$tmp/install.sh" "$tmp/install-complete.sh" "$tmp/uninstall.sh" "$tmp/uninstall-complete.sh" "$tmp/vibepollo-askpass" "$tmp/vibeshine-drmctl"
+chmod 0755 "$tmp/install.sh" "$tmp/install-complete.sh" "$tmp/uninstall.sh" "$tmp/uninstall-complete.sh" "$tmp/vibepollo-askpass" "$tmp/vibeshine-drmctl" "$tmp/vibepollo-lifecycle" "$tmp/vibepollo-user-launch"
 chmod 0644 "$tmp/vibeshine-vkms.service" "$tmp/vibeshine-vkms-control.socket" "$tmp/vibeshine-vkms-control@.service"
 
 mkdir -p -- "$(dirname -- "$output")"
 epoch="${SOURCE_DATE_EPOCH:-0}"
 tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner \
-    -C "$tmp" -cf - install.sh install-complete.sh uninstall.sh uninstall-complete.sh vibepollo-askpass vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce \
+    -C "$tmp" -cf - install.sh install-complete.sh uninstall.sh uninstall-complete.sh vibepollo-askpass vibeshine-drmctl vibepollo-lifecycle vibepollo-user-launch vibeshine-vkms vibeshine-vkms-quiesce \
     vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service | gzip -n -1 > "$output"
 sha256sum "$output"
 echo "Created Cask payload: $output"

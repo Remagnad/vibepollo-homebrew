@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Static syntax, packaging, published-checksum and lifecycle checks for DRM packages."""
+# Keep lifecycle UI, launcher and boot semantics covered by the same package gate.
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +20,7 @@ formula = root / "Formula/vibepollo-drm.rb"
 cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
 payload_files = [
-    "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl",
+    "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
     "vibeshine-vkms", "vibeshine-vkms-quiesce",
     "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
     "vibeshine-vkms-control@.service",
@@ -33,11 +34,15 @@ if not migration_helper.is_file() or migration_helper.is_symlink():
     raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
 subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
 
-for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl"):
+for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
     subprocess.run(["bash", "-n", str(path)], check=True)
+launcher_script = root / "scripts/vibepollo-launcher.sh"
+subprocess.run(["sh", "-n", str(launcher_script)], check=True)
+debug_prepare_script = root / ".github/scripts/prepare-debug-source.sh"
+subprocess.run(["bash", "-n", str(debug_prepare_script)], check=True)
 for name in payload_files[-3:]:
     path = integration_dir / name
     if not path.is_file() or path.is_symlink():
@@ -115,7 +120,7 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl"):
+                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
                     source_path = payload_dir / member.name
                 elif member.name in payload_files[-3:]:
                     source_path = integration_dir / member.name
@@ -231,17 +236,23 @@ if '#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz' 
 
 formula_text = formula.read_text(encoding="utf-8")
 prepare_source_text = (root / "scripts/prepare-source.sh").read_text(encoding="utf-8")
+prepare_debug_source_text = (root / ".github/scripts/prepare-debug-source.sh").read_text(encoding="utf-8")
 homebrew_patches_text = (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")
 cask_packager_text = (root / "scripts/package-cask-payload.sh").read_text(encoding="utf-8")
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
 uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
+lifecycle_helper_text = (payload_dir / "vibepollo-lifecycle").read_text(encoding="utf-8")
 
 checks = [
     ("legacy competing Cask publisher is removed",
      not (root / ".github/workflows/publish-cask-payload.yml").exists()),
     ("Linux-specific libvirtualdisplay gitlink is fetched when present",
      "third-party/libvirtualdisplay-linux" in prepare_source_text),
+    ("debug build fetches the Linux libvirtualdisplay gitlink before CMake",
+     "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
+     'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
+     'git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux' in prepare_debug_source_text),
     ("Homebrew patches the Linux-selected libvirtualdisplay source",
      'third-party/libvirtualdisplay-linux' in homebrew_patches_text and
      'libvirtualdisplay_root / "src/driver/CMakeLists.txt"' in homebrew_patches_text),
@@ -251,6 +262,76 @@ checks = [
     ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask does not capture an askpass path through stdout_path", "stdout_path" not in cask_text),
+    ("lifecycle helper is installed with the runtime integration",
+     "vibepollo-lifecycle" in install_text and "vibepollo-lifecycle" in uninstall_text and
+     "vibepollo-lifecycle" in cask_packager_text),
+    ("Cask removes both installed lifecycle helpers",
+     "vibepollo-lifecycle vibepollo-user-launch" in uninstall_text),
+    ("mutable autostart state refreshes its Cask ownership receipt",
+     "lifecycle_state_sha256" in install_text and
+     "lifecycle_state_sha256" in uninstall_text and
+     "lifecycle_state_sha256" in lifecycle_helper_text),
+    ("desktop launcher starts the managed pool on demand",
+     "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%u' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%a' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle" in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     " & 0022" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+    ("desktop-session autostart uses trusted pkexec and a verified helper",
+     '[[ -x /usr/bin/pkexec ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '[[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '/usr/bin/pkexec "$LIFECYCLE_HELPER" start' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8")),
+    ("tray lifecycle controls are patched into the Homebrew source build",
+     "Quit and stop services" in homebrew_patches_text and
+     "Start with system" in homebrew_patches_text and
+     '"stop-after-pid"' in homebrew_patches_text),
+    ("tray lifecycle worker completions return through the GTK/GLib main context",
+     '#include <glib.h>' in homebrew_patches_text and
+     'g_idle_add_full(G_PRIORITY_DEFAULT' in homebrew_patches_text and
+     'dispatch_lifecycle_completion([action' in homebrew_patches_text),
+    ("Homebrew C++ tray target explicitly receives GLib headers and linkage",
+     'pkg_check_modules(VIBEPOLLO_GLIB REQUIRED IMPORTED_TARGET glib-2.0)' in homebrew_patches_text and
+     'target_link_libraries(sunshine PkgConfig::VIBEPOLLO_GLIB)' in homebrew_patches_text),
+    ("tray lifecycle worker does not directly mutate GTK from its detached thread",
+     'run_on_tray_thread([action' not in homebrew_patches_text and
+     'run_lifecycle_completion(gpointer data)' in homebrew_patches_text),
+    ("opt-in autostart launches the host only after the desktop session starts",
+     'Comment=Start the Vibepollo streaming host with the graphical session' in
+     lifecycle_helper_text and
+     'Type=Application' in lifecycle_helper_text and
+     'exec "$app_prefix/bin/vibepollo"' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     'WantedBy=multi-user.target' in
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
+    ("tray actions use the trusted pkexec path rather than terminal sudo",
+     '"/usr/bin/pkexec"' in homebrew_patches_text and "sudo -A" not in homebrew_patches_text),
+    ("quit-and-stop exits the app on every authorization or spawn failure",
+     'const bool quit_requested = action == "stop-after-pid";' in homebrew_patches_text and
+     'if (quit_requested) {\n              lifetime::exit_sunshine(0, true);\n            }' in homebrew_patches_text),
+    ("lifecycle shutdown treats zombie processes as already exited",
+     'process_is_exited "$pid"' in lifecycle_helper_text and
+     '[[ "${fields[0]}" == Z || "${fields[0]}" == X ]]' in lifecycle_helper_text),
+    ("desktop-session autostart invokes fixed pkexec and verifies helper ownership",
+     '[[ -x /usr/bin/pkexec ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '[[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]]' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     '/usr/bin/pkexec "$LIFECYCLE_HELPER" start' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8")),
+    ("VKMS unit has an opt-in boot target",
+     "WantedBy=multi-user.target" in
+     (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8")),
+    ("first installation defaults autostart to disabled",
+     "PRIOR_AUTOSTART_ENABLED=0" in install_text),
+    ("Cask helper ownership receipts use newline-separated checksums",
+     "printf 'helper_%s_sha256=%s\\n'" in install_text),
     ("Cask installer runs as root through Homebrew preflight steps", "preflight_steps do" in cask_text and 'run "install.sh"' in cask_text and "sudo: true" in cask_text and '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask installer script does not self-elevate", "exec sudo" not in install_text and "sudo -v" not in install_text and '[[ "$EUID" -eq 0 ]]' in install_text),
     ("Cask install completion verifies root-owned state", "STATE_FILE=" in (payload_dir / "install-complete.sh").read_text(encoding="utf-8") and 'stat -c \'%u\' "$STATE_FILE"' in (payload_dir / "install-complete.sh").read_text(encoding="utf-8")),
@@ -264,7 +345,6 @@ checks = [
     ("unencrypted-key validation", "-passin pass:" in install_text),
     ("pool controller loads without a default configfs device", '"create_default_dev=0"' in controller_text),
     ("pool provisioner delegates module loading to controller", 'controller" load' in (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")),
-    ("systemd pool units are not enabled by the package", re.search(r"^\[Install\]$", (integration_dir / "vibeshine-vkms.service").read_text(encoding="utf-8"), re.MULTILINE) is None),
     ("Cask does not start or enable services", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
     ("no automatic module loading", 'insmod "$MODULE_FILE"' not in install_text),
     ("no service activation", re.search(r"^\s*systemctl\s+(?:start|enable)\b", install_text, re.MULTILINE) is None),
