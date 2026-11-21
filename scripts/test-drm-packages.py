@@ -257,6 +257,12 @@ checks = [
     ("lifecycle helper is installed with the runtime integration",
      "vibepollo-lifecycle" in install_text and "vibepollo-lifecycle" in uninstall_text and
      "vibepollo-lifecycle" in cask_packager_text),
+    ("Cask removes both installed lifecycle helpers",
+     "vibepollo-lifecycle vibepollo-user-launch" in uninstall_text),
+    ("mutable autostart state refreshes its Cask ownership receipt",
+     "lifecycle_state_sha256" in install_text and
+     "lifecycle_state_sha256" in uninstall_text and
+     "lifecycle_state_sha256" in controller_text),
     ("desktop launcher starts the managed pool on demand",
      "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
      (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
