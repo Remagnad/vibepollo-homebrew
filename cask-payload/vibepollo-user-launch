@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DRM_ROOT="/var/lib/vibepollo/drm"
+LIFECYCLE_STATE="$DRM_ROOT/state/vibepollo-lifecycle"
+LIFECYCLE_HELPER="$DRM_ROOT/bin/vibepollo-lifecycle"
+
+fail() {
+  printf 'vibepollo autostart: error: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -f "$LIFECYCLE_STATE" && ! -L "$LIFECYCLE_STATE" ]] || fail "Cask lifecycle state is missing"
+[[ "$(stat -c '%u' "$LIFECYCLE_STATE")" == 0 ]] || fail "Cask lifecycle state is not root-owned"
+state_mode="$(stat -c '%a' "$LIFECYCLE_STATE")"
+(( (8#$state_mode & 0022) == 0 )) || fail "Cask lifecycle state is writable by group or others"
+
+desktop_uid="$(awk -F= '$1 == "desktop_uid" { sub(/^[^=]*=/, ""); print; exit }' "$LIFECYCLE_STATE")"
+app_prefix="$(awk -F= '$1 == "app_prefix" { sub(/^[^=]*=/, ""); print; exit }' "$LIFECYCLE_STATE")"
+autostart_enabled="$(awk -F= '$1 == "autostart_enabled" { sub(/^[^=]*=/, ""); print; exit }' "$LIFECYCLE_STATE")"
+
+[[ "$desktop_uid" =~ ^[1-9][0-9]*$ && "$(id -u)" == "$desktop_uid" ]] ||
+  fail "this desktop autostart entry belongs to a different account"
+[[ "$autostart_enabled" == 1 ]] || exit 0
+[[ "$app_prefix" == /* && "$app_prefix" != *$'\n'* ]] || fail "invalid app Formula prefix"
+[[ -x "$app_prefix/bin/vibepollo" ]] || fail "the Homebrew Vibepollo app Formula is unavailable"
+
+# The system pool normally starts during boot. Recover interactively if startup
+# was missed, rather than launching a host with no managed virtual displays.
+if [[ -f /etc/systemd/system/vibeshine-vkms.service ]] &&
+   command -v systemctl >/dev/null 2>&1 &&
+   ! systemctl is-active --quiet vibeshine-vkms.service; then
+  command -v pkexec >/dev/null 2>&1 || fail "pkexec is required to start the Vibeshine system integration"
+  pkexec "$LIFECYCLE_HELPER" start || fail "could not start the Vibeshine system integration"
+fi
+
+exec "$app_prefix/bin/vibepollo" "$@"
