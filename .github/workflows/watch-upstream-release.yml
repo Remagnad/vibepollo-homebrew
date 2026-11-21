@@ -50,6 +50,10 @@ jobs:
     steps:
       - name: Check out tap
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The release check compares the push's before/after commits to decide
+          # whether application build inputs actually changed.
+          fetch-depth: 0
 
       - name: Read latest stable release and compare
         id: release
