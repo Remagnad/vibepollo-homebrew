@@ -48,6 +48,28 @@ jobs:
           upstream_commit="$(tr -d '[:space:]' < upstream-commit)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]
+
+          # The DRM Formula and Cask must be built from the exact application
+          # release already published by the main bottle workflow.
+          app_formula="Formula/vibepollo-app.rb"
+          release_root="https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-$version"
+          grep -Fqx "  UPSTREAM_TAG = \"$version\".freeze" "$app_formula" || {
+            echo "::error::The app Formula upstream tag does not match upstream-version ($version)."
+            exit 1
+          }
+          grep -Fqx "  UPSTREAM_COMMIT = \"$upstream_commit\".freeze" "$app_formula" || {
+            echo "::error::The app Formula upstream commit does not match upstream-commit ($upstream_commit)."
+            exit 1
+          }
+          grep -Fqx "  url \"$release_root/vibepollo-source-$version.tar.gz\"" "$app_formula" || {
+            echo "::error::The app Formula source URL does not match the published upstream release."
+            exit 1
+          }
+          grep -Fqx "    root_url \"$release_root\"" "$app_formula" || {
+            echo "::error::The app Formula bottle URL does not match the published upstream release."
+            exit 1
+          }
+
           release_json="$(gh api "repos/Remagnad/vibepollo-homebrew/releases/tags/vibepollo-$version")"
           published_at="$(jq -r '.published_at' <<<"$release_json")"
           [[ "$published_at" != "null" && -n "$published_at" ]]
