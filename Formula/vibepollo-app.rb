@@ -324,7 +324,7 @@ class VibepolloApp < Formula
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
     # Homebrew bottle relocation must not add its private /home interpreter.
     peercred_program_headers = shell_output("readelf -lW #{libexec}/vibeshine-vkms-peercred")
-    assert_not_match "Requesting program interpreter", peercred_program_headers
+    assert_equal false, peercred_program_headers.include?("Requesting program interpreter")
     # The helper runs directly from /var/lib under systemd ProtectHome=yes.
     peercred_output = shell_output(
       "#{libexec}/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control 2>&1", 1
