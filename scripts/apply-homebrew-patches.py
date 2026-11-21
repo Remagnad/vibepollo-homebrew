@@ -415,6 +415,7 @@ endif()""",
   #include <cerrno>
   #include <fstream>
   #include <spawn.h>
+  #include <system_error>
   #include <sys/stat.h>
   #include <sys/wait.h>
   #include <unistd.h>
