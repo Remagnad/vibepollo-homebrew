@@ -10,7 +10,7 @@ MODULES_DIR="$DRM_ROOT/modules"
 BIN_DIR="$DRM_ROOT/bin"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
-SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred)"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
 SELINUX_ACTIVE=0
 SELINUX_RULE_OWNED=0
 SELINUX_RULE_ADDED=0
@@ -65,6 +65,9 @@ APP_PREFIX="$2"
 STAGED_DIR="$3"
 STAGED_HELPER="$STAGED_DIR/vibeshine-drmctl"
 PEERCRED_HELPER="$APP_PREFIX/libexec/vibeshine-vkms-peercred"
+LIFECYCLE_HELPER="$STAGED_DIR/vibepollo-lifecycle"
+USER_LAUNCHER="$STAGED_DIR/vibepollo-user-launch"
+LIFECYCLE_STATE="$STATE_DIR/vibepollo-lifecycle"
 MODULE_FILE="$FORMULA_PREFIX/libexec/vibeshine_drm.ko"
 for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay-commit; do
   [[ -f "$FORMULA_PREFIX/libexec/$metadata" && ! -L "$FORMULA_PREFIX/libexec/$metadata" ]] ||
@@ -85,7 +88,7 @@ PEERCRED_DYNAMIC_SECTION="$(readelf -dW "$PEERCRED_HELPER" 2>/dev/null)" ||
 if grep -q "(NEEDED)" <<< "$PEERCRED_DYNAMIC_SECTION"; then
   fail "vibeshine-vkms-peercred has dynamic dependencies; rebuild vibepollo-app with the static helper fix"
 fi
-for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
+for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch; do
   [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
 done
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
@@ -121,7 +124,7 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
   actual="$(sha256sum "$existing" | awk '{print $1}')"
   [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
 done
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
   existing="$BIN_DIR/$helper"
   [[ -e "$existing" || -L "$existing" ]] || continue
   [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing helper: $existing"
@@ -257,8 +260,10 @@ install -o root -g root -m 0755 "$STAGED_HELPER" "$BIN_DIR/vibeshine-drmctl.new"
 install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms" "$BIN_DIR/vibeshine-vkms.new"
 install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms-quiesce" "$BIN_DIR/vibeshine-vkms-quiesce.new"
 install -o root -g root -m 0755 "$PEERCRED_HELPER" "$BIN_DIR/vibeshine-vkms-peercred.new"
+install -o root -g root -m 0755 "$LIFECYCLE_HELPER" "$BIN_DIR/vibepollo-lifecycle.new"
+install -o root -g root -m 0755 "$USER_LAUNCHER" "$BIN_DIR/vibepollo-user-launch.new"
 mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
   mv -f -- "$BIN_DIR/$helper.new" "$BIN_DIR/$helper"
 done
 UNIT_DIR="/etc/systemd/system"
@@ -287,7 +292,7 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
     SELINUX_RULE_ADDED=1
     SELINUX_RULE_OWNED=1
   fi
-  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
     restorecon -F "$BIN_DIR/$helper" || fail "could not apply the SELinux executable label to $BIN_DIR/$helper"
     helper_context="$(stat -c '%C' "$BIN_DIR/$helper")"
     IFS=: read -r _ _ helper_type _ <<< "$helper_context"
@@ -305,11 +310,70 @@ printf 'socket_group=%s\n' "$SOCKET_GROUP" >> "$STATE_FILE"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
 done
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
   printf 'helper_%s_sha256=%s\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
 done
 chmod 0644 "$STATE_FILE"
-SELINUX_STATE_COMMITTED=1
+# Persist the desktop integration separately from the module receipt. The
+# default is OFF; upgrading the Cask preserves an explicitly enabled choice.
+SOCKET_UID="$(id -u "$SOCKET_USER")"
+DESKTOP_UID="$SOCKET_UID"
+DESKTOP_HOME="$(getent passwd "$SOCKET_USER" | awk -F: '{print $6}')"
+[[ "$DESKTOP_HOME" == /* && "$DESKTOP_HOME" != "/" && "$DESKTOP_HOME" != *
+
+if command -v mokutil >/dev/null 2>&1; then
+  if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
+    printf 'The certificate is present in the shim MOK database.\n'
+  else
+    printf 'Note: mokutil did not confirm this certificate in shim MOK. It may still be trusted through another kernel keyring; no enrollment was requested.\n'
+  fi
+fi
+printf '\nInstalled and signed vibeshine_drm.ko for %s.\n' "$KERNEL_RELEASE"
+printf 'The module was NOT loaded; pool units were installed but neither started nor enabled.\n'
+printf 'Start the pool only when needed with: sudo systemctl start vibeshine-vkms.service\n'
+printf 'To load only the module without starting the pool: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
+\\n'* ]] ||
+  fail "the invoking desktop account has an invalid home directory"
+[[ "$APP_PREFIX" == /* && "$APP_PREFIX" != *
+
+if command -v mokutil >/dev/null 2>&1; then
+  if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
+    printf 'The certificate is present in the shim MOK database.\n'
+  else
+    printf 'Note: mokutil did not confirm this certificate in shim MOK. It may still be trusted through another kernel keyring; no enrollment was requested.\n'
+  fi
+fi
+printf '\nInstalled and signed vibeshine_drm.ko for %s.\n' "$KERNEL_RELEASE"
+printf 'The module was NOT loaded; pool units were installed but neither started nor enabled.\n'
+printf 'Start the pool only when needed with: sudo systemctl start vibeshine-vkms.service\n'
+printf 'To load only the module without starting the pool: sudo %s load\n' "$BIN_DIR/vibeshine-drmctl"
+\\n'* ]] || fail "invalid Homebrew app Formula prefix"
+
+PRIOR_AUTOSTART_ENABLED=0
+if [[ -e "$LIFECYCLE_STATE" || -L "$LIFECYCLE_STATE" ]]; then
+  require_root_file "$LIFECYCLE_STATE"
+  lifecycle_mode="$(stat -c '%a' "$LIFECYCLE_STATE")"
+  (( (8#$lifecycle_mode & 0022) == 0 )) || fail "existing lifecycle state is writable by group or others"
+  prior_uid="$(awk -F= '$1 == "desktop_uid" {print $2; exit}' "$LIFECYCLE_STATE")"
+  prior_home="$(awk -F= '$1 == "desktop_home" {sub(/^[^=]*=/, ""); print; exit}' "$LIFECYCLE_STATE")"
+  [[ "$prior_uid" == "$DESKTOP_UID" ]] || fail "the existing lifecycle state belongs to another desktop account"
+  [[ "$prior_home" == "$DESKTOP_HOME" ]] || fail "the desktop home directory changed; migrate the existing autostart entry before upgrading"
+  PRIOR_AUTOSTART_ENABLED="$(awk -F= '$1 == "autostart_enabled" {print $2; exit}' "$LIFECYCLE_STATE")"
+  [[ "$PRIOR_AUTOSTART_ENABLED" == 0 || "$PRIOR_AUTOSTART_ENABLED" == 1 ]] ||
+    fail "existing lifecycle state has an invalid autostart flag"
+fi
+
+AUTOSTART_SHA="$(
+  printf '[Desktop Entry]\\nType=Application\\nName=Vibepollo\\nComment=Start the Vibepollo streaming host with the graphical session\\nExec=/var/lib/vibepollo/drm/bin/vibepollo-user-launch\\nTerminal=false\\nX-GNOME-Autostart-enabled=true\\n' |
+    sha256sum | awk '{print $1}'
+)"
+LIFECYCLE_TMP="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")"
+printf 'format=1\\ndesktop_uid=%s\\ndesktop_home=%s\\napp_prefix=%s\\nautostart_enabled=%s\\nautostart_sha256=%s\\n' \\
+  "$DESKTOP_UID" "$DESKTOP_HOME" "$APP_PREFIX" "$PRIOR_AUTOSTART_ENABLED" "$AUTOSTART_SHA" > "$LIFECYCLE_TMP"
+chown root:root "$LIFECYCLE_TMP"
+chmod 0644 "$LIFECYCLE_TMP"
+mv -f -- "$LIFECYCLE_TMP" "$LIFECYCLE_STATE"
+
 
 if command -v mokutil >/dev/null 2>&1; then
   if mokutil --test-key "$CERTIFICATE" >/dev/null 2>&1; then
