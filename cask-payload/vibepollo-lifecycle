@@ -125,6 +125,9 @@ resolve_desktop_user() {
 
 verify_invoking_user() {
   local invoking_uid="${PKEXEC_UID:-${SUDO_UID:-}}"
+  # Homebrew's Cask uninstaller already runs as root; GUI callers arrive
+  # through pkexec and carry PKEXEC_UID.
+  [[ "$EUID" -eq 0 && -z "$invoking_uid" ]] && return 0
   [[ "$invoking_uid" =~ ^[1-9][0-9]*$ ]] || fail "run this command through pkexec from the installed desktop account"
   [[ "$invoking_uid" == "$DESKTOP_UID" ]] || fail "this integration belongs to desktop UID $DESKTOP_UID, not UID $invoking_uid"
 }
@@ -271,8 +274,8 @@ process_starttime() {
   printf '%s\n' "${fields[19]}"
 }
 
-wait_for_invoking_process() {
-  local pid="$1" process_uid initial_start current_start real_uid effective_uid
+stop_vibepollo_and_wait() {
+  local pid="$1" real_uid effective_uid initial_start current_start process_exe app_prefix_real
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "stop-after-pid requires a valid PID"
   if [[ ! -d "/proc/$pid" ]]; then
     log "the Vibepollo process already exited"
@@ -281,9 +284,20 @@ wait_for_invoking_process() {
   read -r real_uid effective_uid < <(awk '/^Uid:/ { print $2, $3; exit }' "/proc/$pid/status")
   [[ "$real_uid" == "$DESKTOP_UID" && "$effective_uid" == "$DESKTOP_UID" ]] ||
     fail "PID $pid is not owned by the installed desktop account"
+
+  # Never let this privileged action signal an arbitrary desktop process.
+  app_prefix_real="$(readlink -f -- "$APP_PREFIX")" || fail "could not resolve the Homebrew app Formula prefix"
+  process_exe="$(readlink -f -- "/proc/$pid/exe")" || fail "could not resolve the target executable"
+  [[ "$process_exe" == "$app_prefix_real/libexec/vibepollo-bin" ]] ||
+    fail "PID $pid is not the installed Homebrew Vibepollo executable"
+
   initial_start="$(process_starttime "$pid")" || {
     log "the Vibepollo process exited before its identity could be read"
     return 0
+  }
+  log "requesting graceful SIGTERM for verified Vibepollo PID $pid"
+  kill -TERM "$pid" || {
+    [[ ! -d "/proc/$pid" ]] || fail "could not signal the verified Vibepollo process"
   }
 
   for ((attempt = 0; attempt < 600; attempt++)); do
@@ -322,13 +336,11 @@ enable_autostart() {
 
 disable_autostart() {
   local was_enabled=0
-  if [[ "$AUTOSTART_ENABLED" != 1 ]]; then
-    log "autostart is already disabled"
-    return 0
-  fi
   [[ "$(systemctl is-enabled "$POOL_UNIT" 2>/dev/null || true)" == enabled ]] && was_enabled=1
 
-  bounded_systemctl 30 "disabling the Vibeshine pool at boot" disable "$POOL_UNIT"
+  if (( was_enabled == 1 )); then
+    bounded_systemctl 30 "disabling the Vibeshine pool at boot" disable "$POOL_UNIT"
+  fi
   if ! remove_autostart_entry; then
     if (( was_enabled == 1 )); then
       systemctl enable "$POOL_UNIT" >/dev/null 2>&1 || true
@@ -376,15 +388,15 @@ case "$action" in
     ;;
   stop-after-pid)
     [[ "$#" -eq 2 ]] || fail "usage: stop-after-pid PID"
-    wait_for_invoking_process "$2"
+    stop_vibepollo_and_wait "$2"
     stop_pool_and_module
     ;;
   enable-autostart)
     [[ "$#" -eq 1 ]] || fail "enable-autostart does not accept additional arguments"
     enable_autostart
     ;;
-  disable-autostart)
-    [[ "$#" -eq 1 ]] || fail "disable-autostart does not accept additional arguments"
+  disable-autostart|remove-autostart)
+    [[ "$#" -eq 1 ]] || fail "$action does not accept additional arguments"
     disable_autostart
     ;;
   status)
@@ -392,6 +404,6 @@ case "$action" in
     show_status
     ;;
   *)
-    fail "usage: pkexec $SELF {start|stop|stop-after-pid PID|enable-autostart|disable-autostart|status}"
+    fail "usage: pkexec $SELF {start|stop|stop-after-pid PID|enable-autostart|disable-autostart|remove-autostart|status}"
     ;;
 esac
