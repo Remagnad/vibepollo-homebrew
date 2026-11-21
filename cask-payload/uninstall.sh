@@ -223,7 +223,7 @@ for directory in bin state; do
   require_root_directory "$path"
   case "$directory" in
     bin)
-      for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+      for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
         helper="$path/$helper_name"
         [[ -e "$helper" || -L "$helper" ]] || continue
         [[ -f "$helper" && ! -L "$helper" ]] || fail "refusing unsafe helper path: $helper"
