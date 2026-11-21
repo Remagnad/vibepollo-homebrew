@@ -41,6 +41,8 @@ for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-com
     subprocess.run(["bash", "-n", str(path)], check=True)
 launcher_script = root / "scripts/vibepollo-launcher.sh"
 subprocess.run(["sh", "-n", str(launcher_script)], check=True)
+debug_prepare_script = root / ".github/scripts/prepare-debug-source.sh"
+subprocess.run(["bash", "-n", str(debug_prepare_script)], check=True)
 for name in payload_files[-3:]:
     path = integration_dir / name
     if not path.is_file() or path.is_symlink():
