@@ -45,6 +45,12 @@ echo "::endgroup::"
 
 # These are the source submodules used by the Linux user-space target.
 # Each one is resolved by Git from the gitlink SHA stored in the selected tag.
+# Recent stable releases split Linux libvirtualdisplay into its own gitlink.
+# CMake requires this exact Linux tree; the legacy shared module is not a substitute.
+if git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux | grep -q '^160000 commit '; then
+    submodules+=(third-party/libvirtualdisplay-linux)
+fi
+
 submodules=(
     third-party/Simple-Web-Server
     third-party/glad
