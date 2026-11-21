@@ -30,7 +30,6 @@ __BOTTLE_BLOCK__
   # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "mold" => :build
   depends_on "node" => :build
-  depends_on "patchelf" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
@@ -281,16 +280,12 @@ __BOTTLE_BLOCK__
       system "cmake", "--build", buildpath/"build", "--target", "vibeshine_vkms_peercred", "--parallel", "2"
       odie "libvirtualdisplay did not build vibeshine-vkms-peercred" unless peercred_binary.executable?
 
-      # Homebrew's linker points PT_INTERP at its private loader under /home.
-      # The Cask runs this helper with ProtectHome=yes, so give it the host
-      # loader as its ELF interpreter before copying it into /var/lib.
-      host_dynamic_loader = Pathname.new("/lib64/ld-linux-x86-64.so.2")
-      odie "The host x86_64 ELF dynamic loader is missing: #{host_dynamic_loader}" unless host_dynamic_loader.file?
-      system "patchelf", "--set-interpreter", host_dynamic_loader.to_s, peercred_binary
-      peercred_interpreter = Utils.safe_popen_read(
-        "patchelf", "--print-interpreter", peercred_binary
-      ).strip
-      odie "Could not set the peercred host ELF interpreter" unless peercred_interpreter == host_dynamic_loader.to_s
+      # Homebrew rewrites dynamic ELF interpreters to its private /home loader
+      # while bottling. The broker must run under systemd ProtectHome=yes, so
+      # the upstream patch links this small helper fully statically.
+      peercred_program_headers = Utils.safe_popen_read("readelf", "-lW", peercred_binary)
+      odie "The peercred helper is still dynamically linked; it cannot run in the systemd sandbox" if
+        peercred_program_headers.include?("Requesting program interpreter")
 
       libexec.mkpath
       cp peercred_binary, libexec/"vibeshine-vkms-peercred"
@@ -337,8 +332,10 @@ __BOTTLE_BLOCK__
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
-    # The helper is staged in /var/lib and must use a host-visible ELF loader.
-    # Execute it directly, just as the systemd socket-activation unit does.
+    # Homebrew bottle relocation must not add its private /home interpreter.
+    peercred_program_headers = shell_output("readelf -lW #{libexec}/vibeshine-vkms-peercred")
+    assert_not_match "Requesting program interpreter", peercred_program_headers
+    # The helper runs directly from /var/lib under systemd ProtectHome=yes.
     peercred_output = shell_output(
       "#{libexec}/vibeshine-vkms-peercred /var/lib/vibepollo/drm/bin/vibeshine-vkms control 2>&1", 1
     )
