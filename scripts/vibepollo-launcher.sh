@@ -159,7 +159,9 @@ if [ "${1:-}" != "--version" ] && [ "${1:-}" != "--help" ] &&
    [ -f /var/lib/vibepollo/drm/state/vibepollo-lifecycle ] &&
    [ ! -L /var/lib/vibepollo/drm/bin/vibepollo-lifecycle ] &&
    [ "$(stat -c '%u' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle 2>/dev/null || echo invalid)" = 0 ] &&
+   [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
    [ "$(stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo invalid)" = 0 ] &&
+   [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
    ! systemctl is-active --quiet vibeshine-vkms.service; then
   if [ ! -x /usr/bin/pkexec ]; then
     echo "vibepollo: pkexec is required to start the managed virtual-display services" >&2
