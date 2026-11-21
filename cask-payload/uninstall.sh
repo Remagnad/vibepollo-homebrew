@@ -8,7 +8,7 @@ DRM_ROOT="/var/lib/vibepollo/drm"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 BIN_DIR="$DRM_ROOT/bin"
-SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred)"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
 SELINUX_RULE_OWNED=0
 MODULE_NAME="vibeshine_drm"
 STATE_TRUSTED=0
@@ -85,6 +85,25 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
   STATE_TRUSTED=1
   SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
   [[ "$SELINUX_RULE_OWNED" == "1" ]] || SELINUX_RULE_OWNED=0
+fi
+
+# Remove only the XDG autostart entry whose checksum and owner are recorded
+# by this Cask. If it was edited or replaced, the lifecycle helper aborts and
+# the uninstaller preserves the user's file rather than deleting it.
+if [[ "$STATE_TRUSTED" == "1" && -x "$BIN_DIR/vibepollo-lifecycle" &&
+      -f "$STATE_DIR/vibepollo-lifecycle" && ! -L "$STATE_DIR/vibepollo-lifecycle" ]]; then
+  lifecycle_mode="$(stat -c '%a' "$STATE_DIR/vibepollo-lifecycle")"
+  (( (8#$lifecycle_mode & 0022) == 0 )) || fail "lifecycle state is writable by group or others"
+  lifecycle_uid="$(awk -F= '$1 == "desktop_uid" {print $2; exit}' "$STATE_DIR/vibepollo-lifecycle")"
+  lifecycle_app_prefix="$(awk -F= '$1 == "app_prefix" {sub(/^[^=]*=/, ""); print; exit}' "$STATE_DIR/vibepollo-lifecycle")"
+  [[ "$lifecycle_uid" =~ ^[1-9][0-9]*$ && "$lifecycle_app_prefix" == /* ]] ||
+    fail "lifecycle state is invalid; preserving autostart and integration files"
+  lifecycle_expected="$(state_value helper_vibepollo-lifecycle_sha256)"
+  lifecycle_actual="$(sha256sum "$BIN_DIR/vibepollo-lifecycle" | awk '{print $1}')"
+  [[ "$lifecycle_expected" =~ ^[0-9a-f]{64}$ && "$lifecycle_actual" == "$lifecycle_expected" ]] ||
+    fail "lifecycle helper ownership could not be verified; preserving autostart and integration files"
+  "$BIN_DIR/vibepollo-lifecycle" remove-autostart ||
+    fail "could not safely remove the Cask-owned autostart configuration"
 fi
 
 # Stop the optional pool before touching its helpers or the DRM module.
