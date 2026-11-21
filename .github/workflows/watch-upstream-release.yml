@@ -56,6 +56,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          REBUILD_INPUT: ${{ inputs.rebuild }}
         run: |
           set -Eeuo pipefail
 
@@ -119,10 +122,33 @@ jobs:
           if [[ "$newest" == "$version" && ( "$version" != "$current" || "$commit" != "$processed_commit" ) ]]; then
             updated=true
           fi
-          # Editing this workflow should run the lightweight release check,
-          # not force another multi-hour source build. Other build-recipe pushes
-          # still request a rebuild; manual runs use the explicit input.
-          force_rebuild="${{ inputs.rebuild || (github.event_name == 'push' && !contains(github.event.head_commit.modified, '.github/workflows/watch-upstream-release.yml')) }}"
+          # Only explicit rebuild requests or changes to the application build
+          # recipe should force a rebuild. Workflow plumbing and DRM/Cask-only
+          # formula changes must not start another multi-hour app compilation.
+          force_rebuild=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$REBUILD_INPUT" == "true" ]]; then
+            force_rebuild=true
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            if [[ "$PUSH_BEFORE" =~ ^0+$ ]]; then
+              changed_files="$(git show --pretty=format: --name-only "$GITHUB_SHA")"
+            else
+              changed_files="$(git diff --name-only "$PUSH_BEFORE" "$GITHUB_SHA")"
+            fi
+            while IFS= read -r changed_file; do
+              case "$changed_file" in
+                scripts/prepare-source.sh|\\
+                scripts/apply-homebrew-patches.py|\\
+                scripts/render-formula.py|\\
+                scripts/install-cuda-components.sh|\\
+                scripts/vibepollo-launcher.sh|\\
+                scripts/prune-actions-caches.sh|\\
+                Formula/vibepollo-app.rb)
+                  force_rebuild=true
+                  break
+                  ;;
+              esac
+            done <<< "$changed_files"
+          fi
           if [[ "$force_rebuild" == "true" && "$newest" == "$version" ]]; then
             updated=true
           fi
