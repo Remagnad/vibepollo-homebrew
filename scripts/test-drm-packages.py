@@ -239,6 +239,7 @@ cask_packager_text = (root / "scripts/package-cask-payload.sh").read_text(encodi
 install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
 uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
+lifecycle_helper_text = (payload_dir / "vibepollo-lifecycle").read_text(encoding="utf-8")
 
 checks = [
     ("legacy competing Cask publisher is removed",
@@ -262,7 +263,7 @@ checks = [
     ("mutable autostart state refreshes its Cask ownership receipt",
      "lifecycle_state_sha256" in install_text and
      "lifecycle_state_sha256" in uninstall_text and
-     "lifecycle_state_sha256" in controller_text),
+     "lifecycle_state_sha256" in lifecycle_helper_text),
     ("desktop launcher starts the managed pool on demand",
      "pkexec /var/lib/vibepollo/drm/bin/vibepollo-lifecycle start" in
      (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
