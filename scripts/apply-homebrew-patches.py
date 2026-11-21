@@ -414,6 +414,7 @@ endif()""",
 #ifdef __linux__
   #include <cerrno>
   #include <fstream>
+  #include <glib.h>
   #include <spawn.h>
   #include <system_error>
   #include <sys/stat.h>
@@ -463,8 +464,7 @@ endif()""",
   static std::atomic<bool> lifecycle_autostart_enabled {read_lifecycle_autostart_state()};
   static std::atomic<bool> lifecycle_action_pending {false};
 
-  template<typename Fn>
-  static void run_on_tray_thread(Fn &&fn);
+  static void dispatch_lifecycle_completion(std::function<void()> fn);
   static void update_lifecycle_tray_menu();
 
   static void run_lifecycle_action(std::string action, bool update_autostart, bool desired_autostart) {
@@ -511,7 +511,7 @@ endif()""",
           }
         }
 
-        run_on_tray_thread([action, update_autostart, desired_autostart, success, spawn_error, wait_error]() {
+        dispatch_lifecycle_completion([action, update_autostart, desired_autostart, success, spawn_error, wait_error]() {
           if (success && update_autostart) {
             lifecycle_autostart_enabled.store(desired_autostart);
           }
@@ -602,8 +602,25 @@ endif()""",
         root / "src/system_tray.cpp",
         "  static int init_tray() {\n  #ifdef _WIN32",
         """#ifdef __linux__
+  static gboolean run_lifecycle_completion(gpointer data) {
+    auto *fn = static_cast<std::function<void()> *>(data);
+    (*fn)();
+    return G_SOURCE_REMOVE;
+  }
+
+  static void destroy_lifecycle_completion(gpointer data) {
+    delete static_cast<std::function<void()> *>(data);
+  }
+
   static void dispatch_lifecycle_completion(std::function<void()> fn) {
-    run_on_tray_thread(std::move(fn));
+    // The Linux tray loop owns GTK's default GLib main context. g_idle_add_full
+    // is thread-safe and schedules this callback on that context instead of
+    // touching tray_menu from the pkexec worker thread.
+    auto *task = new std::function<void()>(std::move(fn));
+    if (g_idle_add_full(G_PRIORITY_DEFAULT, run_lifecycle_completion, task,
+                        destroy_lifecycle_completion) == 0) {
+      delete task;
+    }
   }
 #endif
 
