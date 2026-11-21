@@ -315,21 +315,52 @@ for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-v
 done
 chmod 0644 "$STATE_FILE"
 
+# Keep desktop auto-start explicitly opt-in. Preserve an existing choice
+# during Cask upgrades; first installation always records it as disabled.
 DESKTOP_UID="$(id -u "$SOCKET_USER")"
 DESKTOP_HOME="$(getent passwd "$SOCKET_USER" | awk -F: '{print $6}')"
-[[ "$DESKTOP_HOME" == /* && "$DESKTOP_HOME" != "/" ]] || fail "invalid desktop home directory"
-[[ "$APP_PREFIX" == /* ]] || fail "invalid Homebrew app Formula prefix"
+[[ "$DESKTOP_HOME" == /* && "$DESKTOP_HOME" != "/" && "$DESKTOP_HOME" != *$'\n'* ]] ||
+  fail "the invoking desktop account has an invalid home directory"
+[[ "$APP_PREFIX" == /* && "$APP_PREFIX" != *$'\n'* ]] ||
+  fail "invalid Homebrew app Formula prefix"
+
 PRIOR_AUTOSTART_ENABLED=0
 if [[ -e "$LIFECYCLE_STATE" || -L "$LIFECYCLE_STATE" ]]; then
   require_root_file "$LIFECYCLE_STATE"
-  prior_uid="$(awk -F= '$1 == "desktop_uid" {print $2; exit}' "$LIFECYCLE_STATE")"
-  [[ "$prior_uid" == "$DESKTOP_UID" ]] || fail "lifecycle state belongs to another desktop account"
-  PRIOR_AUTOSTART_ENABLED="$(awk -F= '$1 == "autostart_enabled" {print $2; exit}' "$LIFECYCLE_STATE")"
-  [[ "$PRIOR_AUTOSTART_ENABLED" == 0 || "$PRIOR_AUTOSTART_ENABLED" == 1 ]] || fail "invalid saved autostart state"
+  lifecycle_mode="$(stat -c '%a' "$LIFECYCLE_STATE")"
+  (( (8#$lifecycle_mode & 0022) == 0 )) ||
+    fail "existing lifecycle state is writable by group or others"
+  prior_uid="$(awk -F= '$1 == "desktop_uid" { print $2; exit }' "$LIFECYCLE_STATE")"
+  prior_home="$(awk -F= '$1 == "desktop_home" { sub(/^[^=]*=/, ""); print; exit }' "$LIFECYCLE_STATE")"
+  [[ "$prior_uid" == "$DESKTOP_UID" ]] ||
+    fail "the existing lifecycle state belongs to another desktop account"
+  [[ "$prior_home" == "$DESKTOP_HOME" ]] ||
+    fail "the desktop home directory changed; migrate the existing autostart entry before upgrading"
+  PRIOR_AUTOSTART_ENABLED="$(awk -F= '$1 == "autostart_enabled" { print $2; exit }' "$LIFECYCLE_STATE")"
+  [[ "$PRIOR_AUTOSTART_ENABLED" == 0 || "$PRIOR_AUTOSTART_ENABLED" == 1 ]] ||
+    fail "existing lifecycle state has an invalid autostart flag"
 fi
-AUTOSTART_SHA="$(printf '%s\\n' '[Desktop Entry]' 'Type=Application' 'Name=Vibepollo' 'Comment=Start the Vibepollo streaming host with the graphical session' 'Exec=/var/lib/vibepollo/drm/bin/vibepollo-user-launch' 'Terminal=false' 'X-GNOME-Autostart-enabled=true' | sha256sum | awk '{print $1}')"
+
+AUTOSTART_ENTRY_CONTENT="$(cat <<EOF
+[Desktop Entry]
+Type=Application
+Name=Vibepollo
+Comment=Start the Vibepollo streaming host with the graphical session
+Exec=/var/lib/vibepollo/drm/bin/vibepollo-user-launch
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+)"
+AUTOSTART_SHA="$(printf '%s\n' "$AUTOSTART_ENTRY_CONTENT" | sha256sum | awk '{print $1}')"
 LIFECYCLE_TMP="$(mktemp "$STATE_DIR/.vibepollo-lifecycle.XXXXXX")"
-printf 'format=1\\ndesktop_uid=%s\\napp_prefix=%s\\nautostart_enabled=%s\\nautostart_sha256=%s\\n' "$DESKTOP_UID" "$APP_PREFIX" "$PRIOR_AUTOSTART_ENABLED" "$AUTOSTART_SHA" > "$LIFECYCLE_TMP"
+cat > "$LIFECYCLE_TMP" <<EOF
+format=1
+desktop_uid=$DESKTOP_UID
+desktop_home=$DESKTOP_HOME
+app_prefix=$APP_PREFIX
+autostart_enabled=$PRIOR_AUTOSTART_ENABLED
+autostart_sha256=$AUTOSTART_SHA
+EOF
 chown root:root "$LIFECYCLE_TMP"
 chmod 0644 "$LIFECYCLE_TMP"
 mv -f -- "$LIFECYCLE_TMP" "$LIFECYCLE_STATE"
