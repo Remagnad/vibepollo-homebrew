@@ -30,8 +30,16 @@ autostart_enabled="$(awk -F= '$1 == "autostart_enabled" { sub(/^[^=]*=/, ""); pr
 if [[ -f /etc/systemd/system/vibeshine-vkms.service ]] &&
    command -v systemctl >/dev/null 2>&1 &&
    ! systemctl is-active --quiet vibeshine-vkms.service; then
-  command -v pkexec >/dev/null 2>&1 || fail "pkexec is required to start the Vibeshine system integration"
-  pkexec "$LIFECYCLE_HELPER" start || fail "could not start the Vibeshine system integration"
+  [[ -x /usr/bin/pkexec ]] || fail "/usr/bin/pkexec is required to start the Vibeshine system integration"
+  [[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]] ||
+    fail "the Cask lifecycle helper is missing or unsafe"
+  [[ "$(stat -c '%u' "$LIFECYCLE_HELPER")" == 0 ]] ||
+    fail "the Cask lifecycle helper is not root-owned"
+  helper_mode="$(stat -c '%a' "$LIFECYCLE_HELPER")"
+  (( (8#$helper_mode & 0022) == 0 )) ||
+    fail "the Cask lifecycle helper is writable by group or others"
+  /usr/bin/pkexec "$LIFECYCLE_HELPER" start ||
+    fail "could not start the Vibeshine system integration"
 fi
 
 exec "$app_prefix/bin/vibepollo" "$@"
