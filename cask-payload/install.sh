@@ -182,9 +182,13 @@ if [[ -d /sys/module/vibeshine_drm ]]; then
   LOADED_VERSION="$(cat /sys/module/vibeshine_drm/version 2>/dev/null || true)"
   LOADED_SRCVERSION="$(cat /sys/module/vibeshine_drm/srcversion 2>/dev/null || true)"
   LOADED_TOKEN="$(cat /sys/module/vibeshine_drm/parameters/vibeshine_drmctl_token 2>/dev/null || true)"
-  [[ "$LOADED_VERSION" == "$EXPECTED_VERSION" ]] || fail "a different vibeshine_drm build is loaded; unload it before installing or upgrading"
+  if [[ "$LOADED_VERSION" != "$EXPECTED_VERSION" ]]; then
+    LOADED_REFCOUNT="$(cat /sys/module/vibeshine_drm/refcnt 2>/dev/null || true)"
+    [[ "$LOADED_REFCOUNT" =~ ^[0-9]+$ ]] || LOADED_REFCOUNT=unknown
+    fail "a different vibeshine_drm build is already loaded (version ${LOADED_VERSION:-unknown}, refcount $LOADED_REFCOUNT). A loaded kernel module cannot be replaced in place; reboot to unload the old build, then retry Cask installation"
+  fi
   if [[ -n "$MODULE_SRCVERSION" && -n "$LOADED_SRCVERSION" && "$MODULE_SRCVERSION" != "$LOADED_SRCVERSION" ]]; then
-    fail "loaded vibeshine_drm source identity differs from Formula artifact"
+    fail "the loaded vibeshine_drm source identity differs from the new Formula artifact; reboot to unload the old build, then retry Cask installation"
   fi
   PRIOR_LOAD_TOKEN="$(state_value load_token)"
   if [[ "$(state_value kernel)" == "$KERNEL_RELEASE" &&

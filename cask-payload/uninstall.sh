@@ -123,7 +123,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
     command -v rmmod >/dev/null 2>&1 || fail "rmmod from kmod is required"
     module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
     if [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); then
-      log "DRM module is held by the running desktop (refcount $module_refcount); Leaving it loaded until reboot"
+      log "DRM module is held by the running desktop (refcount $module_refcount); uninstall cannot safely continue"
     else
       log "unloading the Cask-managed DRM module"
       rmmod_output=""
@@ -132,7 +132,7 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
       if (( rmmod_rc != 0 )); then
         module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
         if { [[ "$module_refcount" =~ ^[0-9]+$ ]] && (( module_refcount > 0 )); }; then
-          log "DRM module became busy (refcount $module_refcount); Leaving it loaded until reboot"
+          log "DRM module became busy (refcount $module_refcount); uninstall cannot safely continue"
         elif (( rmmod_rc == 124 || rmmod_rc == 137 )); then
           fail "rmmod did not finish within 10s; the module and integration files were left in place"
         else
@@ -141,6 +141,16 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
       fi
     fi
   fi
+fi
+
+# A successful Cask upgrade must never delete the on-disk module, controller,
+# systemd units or ownership state while the kernel still has the module loaded.
+# Otherwise the next install cannot verify or unload the resident build.
+if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+  loaded_version="$(cat "/sys/module/$MODULE_NAME/version" 2>/dev/null || true)"
+  module_refcount="$(cat "/sys/module/$MODULE_NAME/refcnt" 2>/dev/null || true)"
+  [[ "$module_refcount" =~ ^[0-9]+$ ]] || module_refcount=unknown
+  fail "vibeshine_drm remains loaded (version ${loaded_version:-unknown}, refcount $module_refcount); refusing to remove module files, helpers, state or systemd units. Close all virtual displays and retry; if the compositor still holds the module, reboot and retry. No integration files were removed"
 fi
 
 log "checking ownership of installed systemd units"

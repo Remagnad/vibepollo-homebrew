@@ -79,9 +79,10 @@ cask "vibepollo" do
 
       sudo /var/lib/vibepollo/drm/bin/vibeshine-drmctl status
 
-    The controller records modules it loads itself. During uninstall, it only
-    unloads a matching module that it previously loaded; if the same module
-    was loaded outside the controller, unload it manually first. Signing keys
-    are preserved when the Cask is uninstalled.
+    The controller records modules it loads itself. During an upgrade or
+    uninstall, the Cask refuses to remove integration files while any
+    vibeshine_drm module remains loaded, including one loaded outside the
+    controller. Close virtual displays and retry; if the compositor still
+    holds the module, reboot and retry. Signing keys are preserved.
   EOS
 end

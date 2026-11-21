@@ -253,6 +253,12 @@ checks = [
     ("controller validates the live token before unload", "check_managed_load_token" in controller_text),
     ("uninstaller validates the live token", "expected_token" in uninstall_text and "loaded_token" in uninstall_text),
     ("safe uninstaller ownership check", 'elif [[ "$(state_value managed_load)" != "1" ]]' in uninstall_text and "MODULE_UNVERIFIED_LOADED=1" in uninstall_text and 'if [[ "$STATE_TRUSTED" != "1" || "$MODULE_UNVERIFIED_LOADED" == "1" ]]' in uninstall_text),
+    ("uninstaller aborts before deleting integration while the module remains loaded",
+     'fail "vibeshine_drm remains loaded' in uninstall_text and
+     uninstall_text.find('fail "vibeshine_drm remains loaded') < uninstall_text.find('log "checking ownership of installed systemd units"') and
+     "No integration files were removed" in uninstall_text),
+    ("installer explains reboot recovery for an already-loaded different module",
+     "reboot to unload the old build" in install_text),
     ("key preservation", "Preserved signing keys" in uninstall_text),
     ("no incorrect sig_key/serial comparison", "modinfo -F sig_key" not in install_text + controller_text),
 ]
