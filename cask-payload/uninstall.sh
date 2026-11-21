@@ -28,7 +28,7 @@ state_value() {
 }
 remove_owned_selinux_fcontext() {
   [[ "$SELINUX_RULE_OWNED" == "1" ]] || return 0
-  for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
+  for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
     helper="$BIN_DIR/$helper_name"
     [[ ! -e "$helper" && ! -L "$helper" ]] || fail "cannot remove the Cask-owned SELinux rule while helper remains: $helper"
   done
