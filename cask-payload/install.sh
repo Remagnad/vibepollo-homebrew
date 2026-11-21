@@ -364,6 +364,8 @@ EOF
 chown root:root "$LIFECYCLE_TMP"
 chmod 0644 "$LIFECYCLE_TMP"
 mv -f -- "$LIFECYCLE_TMP" "$LIFECYCLE_STATE"
+printf 'lifecycle_state_sha256=%s\n' "$(sha256sum "$LIFECYCLE_STATE" | awk '{print $1}')" >> "$STATE_FILE"
+chmod 0644 "$STATE_FILE"
 SELINUX_STATE_COMMITTED=1
 
 if command -v mokutil >/dev/null 2>&1; then
