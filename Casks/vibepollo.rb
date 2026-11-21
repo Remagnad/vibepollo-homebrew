@@ -1,8 +1,8 @@
 cask "vibepollo" do
-  version "2.18.9"
+  version "2.18.9,20b56299f21e-4dbcc9a955f6"
   sha256 "4dbcc9a955f6d184bb6c93135c519389928f7a564136ff9510327d84bfe974bb"
 
-  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version}/vibepollo-drm-integration-#{version}.tar.gz"
+  url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz"
   name "Vibepollo"
   desc "Privileged Linux integration for the Vibepollo streaming host"
   homepage "https://github.com/Nonary/Vibepollo"
