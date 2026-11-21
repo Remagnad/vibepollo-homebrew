@@ -311,7 +311,7 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
   printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
 done
 for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
-  printf 'helper_%s_sha256=%s\\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
+  printf 'helper_%s_sha256=%s\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
 done
 chmod 0644 "$STATE_FILE"
 
