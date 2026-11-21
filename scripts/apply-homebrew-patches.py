@@ -573,22 +573,60 @@ endif()""",
 
 """,
     )
+    insert_before_once(
+        root / "src/system_tray.cpp",
+        "  // Tray menu\n",
+        """  // Explicit static storage is essential here. Runtime expressions in
+  // a C compound literal are emitted as a temporary by the C++ compiler,
+  // which leaves tray.menu pointing at expired stack memory.
+  static struct tray_menu vibepollo_tray_menu[] = {
+    {.text = "Open Vibepollo", .cb = tray_open_ui_cb},
+    {.text = "-"},
+    {.text = TRAY_MSG_NO_APP_RUNNING, .cb = tray_force_stop_cb},
+    {.text = "Check for Update", .cb = [](tray_menu *) {
+       BOOST_LOG(info) << "Manual update check requested from tray"sv;
+       update::trigger_check(true);
+     }},
+    {.text = "Restart", .cb = tray_restart_cb},
+    {.text = "Quit", .cb = tray_quit_cb},
+    {.text = "-"},
+    {.text = "Quit and stop services", .disabled = 0,
+     .cb = tray_quit_and_stop_services_cb},
+    {.text = "Start with system", .disabled = 0, .checked = 0, .checkbox = 1,
+     .cb = tray_toggle_autostart_cb},
+    {.text = nullptr}
+  };
+
+""",
+    )
     replace_once(
         root / "src/system_tray.cpp",
-        """        {.text = "Restart", .cb = tray_restart_cb},
-        {.text = "Quit", .cb = tray_quit_cb},
-        {.text = nullptr}""",
-        """        {.text = "Restart", .cb = tray_restart_cb},
-        {.text = "Quit", .cb = tray_quit_cb},
-#ifdef __linux__
+        """    .menu =
+      (struct tray_menu[]) {
+        // todo - use boost/locale to translate menu strings
+        {.text = "Open Vibepollo", .cb = tray_open_ui_cb},
         {.text = "-"},
-        {.text = "Quit and stop services", .disabled = lifecycle_helper_available ? 0 : 1,
-         .cb = tray_quit_and_stop_services_cb},
-        {.text = "Start with system", .disabled = lifecycle_helper_available ? 0 : 1,
-         .checked = lifecycle_autostart_enabled.load() ? 1 : 0, .checkbox = 1,
-         .cb = tray_toggle_autostart_cb},
-#endif
-        {.text = nullptr}""",
+        // { .text = "-" },
+        // { .text = "Donate",
+        //   .submenu =
+        //   (struct tray_menu[]) {
+        //   { .text = "GitHub Sponsors", .cb = tray_donate_github_cb },
+        //   { .text = "MEE6", .cb = tray_donate_mee6_cb },
+        //   { .text = "Patreon", .cb = tray_donate_patreon_cb },
+        //   { .text = "PayPal", .cb = tray_donate_paypal_cb },
+        //   { .text = nullptr } } },
+        // { .text = "-" },
+        {.text = TRAY_MSG_NO_APP_RUNNING, .cb = tray_force_stop_cb},
+        {.text = "Check for Update", .cb = [](tray_menu *) {
+           BOOST_LOG(info) << "Manual update check requested from tray"sv;
+           update::trigger_check(true);
+         }},
+
+        {.text = "Restart", .cb = tray_restart_cb},
+        {.text = "Quit", .cb = tray_quit_cb},
+        {.text = nullptr}
+      },""",
+                """    .menu = vibepollo_tray_menu,""",
     )
     insert_before_once(
         root / "src/system_tray.cpp",
@@ -606,6 +644,19 @@ endif()""",
       tray_update(&tray);
     }
   }
+#endif
+
+""",
+    )
+
+    insert_before_once(
+        root / "src/system_tray.cpp",
+        "    int attempt = 0;\n",
+        """#ifdef __linux__
+    // Apply runtime state after the static menu table has been initialized.
+    tray.menu[7].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[8].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
 #endif
 
 """,
