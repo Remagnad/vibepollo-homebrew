@@ -212,15 +212,25 @@ jobs:
             exit 1
           fi
           printf 'Installing %s Homebrew dependencies (including build dependencies).\n' "${#dependencies[@]}"
-          # The restored Homebrew prefix may contain an older linked keg
-          # from the dependency cache. Upgrade installed dependencies first
-          # so Homebrew unlinks their previous versions cleanly before linking
-          # the bottles required by this source build.
+          # The restored Homebrew prefix may contain older linked kegs
+          # from the dependency cache. Upgrade only outdated dependencies in
+          # one Homebrew transaction so previous kegs are cleanly unlinked
+          # before the bottles required by this source build are linked.
+          mapfile -t outdated_formulas < <(brew outdated --formula --quiet)
+          declare -A outdated_formula_set=()
+          for outdated_formula in "${outdated_formulas[@]}"; do
+            outdated_formula_set["$outdated_formula"]=1
+          done
+          outdated_dependencies=()
           for dependency in "${dependencies[@]}"; do
-            if brew list --versions "$dependency" >/dev/null 2>&1; then
-              brew upgrade --formula "$dependency"
+            if [[ "${outdated_formula_set[$dependency]:-0}" == 1 ]]; then
+              outdated_dependencies+=("$dependency")
             fi
           done
+          if (("${#outdated_dependencies[@]}" > 0)); then
+            printf 'Upgrading %s outdated cached dependencies before the source build.\\n' "${#outdated_dependencies[@]}"
+            brew upgrade --formula "${outdated_dependencies[@]}"
+          fi
           if brew list --versions cmake >/dev/null 2>&1; then
             brew unlink cmake || true
           fi
