@@ -364,6 +364,27 @@ checks = [
     ("installer explains reboot recovery for an already-loaded different module",
      "reboot to unload the old build" in install_text),
     ("key preservation", "Preserved signing keys" in uninstall_text),
+    ("SELinux module file-context rule uses modules_object_t",
+     'SELINUX_MODULE_FCONTEXT_SPEC="$MODULES_DIR/[^/]+/vibeshine_drm[.]ko"' in install_text and
+     'semanage fcontext -a -f f -t modules_object_t "$SELINUX_MODULE_FCONTEXT_SPEC"' in install_text),
+    ("SELinux module is relabeled and verified before service use",
+     'restorecon -F "$MODULE_DEST_PATH"' in install_text and
+     '[[ "$module_type" == "modules_object_t" ]]' in install_text),
+    ("SELinux module-label ownership is persisted across upgrades",
+     "selinux_module_fcontext_owned=%s" in install_text and
+     'state_value selinux_module_fcontext_owned' in install_text and
+     'PRIOR_SELINUX_MODULE_RULE_OWNED' in install_text),
+    ("failed Cask install rolls back a newly added SELinux module-label rule",
+     'SELINUX_MODULE_RULE_ADDED' in install_text and
+     'semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC"' in install_text),
+    ("Cask uninstall removes only its owned SELinux module-label rule",
+     'remove_owned_module_selinux_fcontext' in uninstall_text and
+     'SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"' in uninstall_text and
+     '[[ "$existing_type" == "modules_object_t" ]]' in uninstall_text and
+     'semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC"' in uninstall_text),
+    ("SELinux module-label rule is removed only after module files are removed",
+     uninstall_text.find('remove_owned_module_selinux_fcontext') >
+     uninstall_text.find('rm -f -- "$module_file"')),
     ("no incorrect sig_key/serial comparison", "modinfo -F sig_key" not in install_text + controller_text),
 ]
 for label, passed in checks:
