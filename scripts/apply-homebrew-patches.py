@@ -185,6 +185,15 @@ endif()""",
 if(SUNSHINE_BUILD_HOMEBREW)
     find_package(ZLIB REQUIRED)
     target_link_libraries(sunshine ZLIB::ZLIB)
+
+    # The Homebrew tray lifecycle callbacks use GLib's main context. The tray
+    # subproject links GLib privately, so expose the headers and link dependency
+    # explicitly to the main C++ target that compiles system_tray.cpp.
+    if(SUNSHINE_ENABLE_TRAY)
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(VIBEPOLLO_GLIB REQUIRED IMPORTED_TARGET glib-2.0)
+        target_link_libraries(sunshine PkgConfig::VIBEPOLLO_GLIB)
+    endif()
 endif()""",
     )
 
