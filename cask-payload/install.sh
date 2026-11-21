@@ -36,7 +36,7 @@ state_value() {
 
 [[ "$EUID" -eq 0 ]] || fail "Homebrew must run this installer with sudo: true"
 [[ "$#" -eq 3 ]] || fail "expected DRM Formula prefix, app Formula prefix and staged payload directory"
-for command_name in stat sha256sum awk modinfo openssl install mktemp; do
+for command_name in stat sha256sum awk modinfo openssl install mktemp readelf; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -73,6 +73,18 @@ done
 [[ -f "$MODULE_FILE" && ! -L "$MODULE_FILE" ]] || fail "the Formula did not install vibeshine_drm.ko"
 [[ -f "$STAGED_HELPER" && ! -L "$STAGED_HELPER" ]] || fail "the Cask module-control helper is missing"
 [[ -x "$PEERCRED_HELPER" && ! -L "$PEERCRED_HELPER" ]] || fail "the app Formula lacks vibeshine-vkms-peercred; rebuild vibepollo-app"
+# This helper runs inside a systemd unit with ProtectHome=yes. It must be fully
+# static: Homebrew bottle relocation can otherwise point PT_INTERP into /home.
+PEERCRED_PROGRAM_HEADERS="$(readelf -lW "$PEERCRED_HELPER" 2>/dev/null)" ||
+  fail "could not inspect the app Formula's peercred ELF program headers"
+if grep -q "Requesting program interpreter" <<< "$PEERCRED_PROGRAM_HEADERS"; then
+  fail "vibeshine-vkms-peercred is dynamically loaded; rebuild vibepollo-app with the static helper fix"
+fi
+PEERCRED_DYNAMIC_SECTION="$(readelf -dW "$PEERCRED_HELPER" 2>/dev/null)" ||
+  fail "could not inspect the app Formula's peercred ELF dynamic section"
+if grep -q "(NEEDED)" <<< "$PEERCRED_DYNAMIC_SECTION"; then
+  fail "vibeshine-vkms-peercred has dynamic dependencies; rebuild vibepollo-app with the static helper fix"
+fi
 for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
 done
