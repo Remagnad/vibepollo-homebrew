@@ -80,7 +80,7 @@ import sys
 output, compiler, cflags = sys.argv[1:]
 command = [compiler, *shlex.split(cflags)]
 path = pathlib.Path(output)
-path.write_text("#!/bin/sh\\nset -eu\\nexec " + shlex.join(command) + ' "$@"\\n', encoding="utf-8")
+path.write_text("#!/bin/sh\nset -eu\nexec " + shlex.join(command) + ' "$@"\n', encoding="utf-8")
 PY
 chmod 0755 "$tmp/kms-helper-cc"
 python3 "$build_script" --cc "$tmp/kms-helper-cc" --output "$output" --drm-include "$drm_include" --readelf readelf
