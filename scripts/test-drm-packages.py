@@ -309,6 +309,11 @@ checks = [
     ("launcher detects a stale or missing module for the running kernel",
      "VIBEPOLLO_MODULE_UPDATE_REQUIRED" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
      "module_sha256" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+    ("module updater resolves the Homebrew DRM opt link to a trusted Cellar keg",
+     'readlink -f -- "$DRM_OPT_PREFIX"' in module_updater_script.read_text(encoding="utf-8") and
+     'case "$resolved" in' in module_updater_script.read_text(encoding="utf-8") and
+     '"$brew_prefix"/Cellar/vibepollo-drm/*' in module_updater_script.read_text(encoding="utf-8") and
+     'resolve_drm_formula_prefix ||' in module_updater_script.read_text(encoding="utf-8")),
     ("module updater rebuilds as the desktop user before requesting PolicyKit",
      "must run as the desktop user" in module_updater_script.read_text(encoding="utf-8") and
      "reinstall --build-from-source" in module_updater_script.read_text(encoding="utf-8") and

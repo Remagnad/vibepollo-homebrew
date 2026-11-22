@@ -25,7 +25,8 @@ brew_prefix="${app_prefix%%/Cellar/*}"
 }
 
 BREW="$brew_prefix/bin/brew"
-DRM_PREFIX="$brew_prefix/opt/vibepollo-drm"
+DRM_OPT_PREFIX="$brew_prefix/opt/vibepollo-drm"
+DRM_PREFIX=""
 LIFECYCLE_HELPER="/var/lib/vibepollo/drm/bin/vibepollo-lifecycle"
 FORMULA_TOKEN="Remagnad/vibepollo-homebrew/vibepollo-drm"
 NOTIFY="$brew_prefix/bin/notify-send"
@@ -72,6 +73,18 @@ current_kernel="$(uname -r)"
   fail "the privileged lifecycle helper is not root-owned"
 [[ -x /usr/bin/pkexec ]] || fail "/usr/bin/pkexec is unavailable"
 
+resolve_drm_formula_prefix() {
+  local resolved
+  resolved="$(readlink -f -- "$DRM_OPT_PREFIX" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] || return 1
+  case "$resolved" in
+    "$brew_prefix"/Cellar/vibepollo-drm/*) ;;
+    *) return 1 ;;
+  esac
+  [[ -d "$resolved" && ! -L "$resolved" ]] || return 1
+  DRM_PREFIX="$resolved"
+}
+
 formula_is_ready() {
   local prefix="$1" kernel version commit module name vermagic module_version
   [[ -d "$prefix" && ! -L "$prefix" ]] || return 1
@@ -90,6 +103,9 @@ formula_is_ready() {
   [[ "$name" == vibeshine_drm && "$module_version" == "$version" && "$vermagic" == "$current_kernel" ]]
 }
 
+resolve_drm_formula_prefix ||
+  fail "the Homebrew DRM Formula opt link is missing, unsafe, or does not resolve into the vibepollo-drm Cellar keg"
+
 if ! formula_is_ready "$DRM_PREFIX"; then
   notify "Vibepollo is rebuilding its kernel module" \
     "Compiling vibeshine_drm.ko for kernel $current_kernel. This may take a few minutes."
@@ -97,6 +113,9 @@ if ! formula_is_ready "$DRM_PREFIX"; then
   if ! HOMEBREW_NO_AUTO_UPDATE=1 "$BREW" reinstall --build-from-source "$FORMULA_TOKEN" >> "$log_file" 2>&1; then
     fail "Homebrew could not build the module for kernel $current_kernel. Check that matching kernel development files and GNU make are installed"
   fi
+  # Homebrew may have switched opt/vibepollo-drm to a new versioned keg.
+  resolve_drm_formula_prefix ||
+    fail "Homebrew rebuilt the DRM Formula but its opt link does not resolve to a trusted Cellar keg"
 fi
 
 formula_is_ready "$DRM_PREFIX" ||
