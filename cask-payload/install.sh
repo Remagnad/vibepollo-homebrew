@@ -11,6 +11,9 @@ BIN_DIR="$DRM_ROOT/bin"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch|vibeshine-kms-capture)"
+SELINUX_LEGACY_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_STATE_FCONTEXT_SPEC="$SELINUX_FCONTEXT_SPEC"
+SELINUX_PRIOR_RULE_REMOVED=0
 SELINUX_MODULE_FCONTEXT_SPEC="$MODULES_DIR/[^/]+/vibeshine_drm[.]ko"
 SELINUX_ACTIVE=0
 SELINUX_RULE_OWNED=0
@@ -62,6 +65,17 @@ case "$SELINUX_MODE" in
 esac
 PRIOR_SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
 [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_RULE_OWNED=0
+PRIOR_SELINUX_FCONTEXT_SPEC="$(state_value selinux_fcontext_spec)"
+if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]]; then
+  [[ "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_FCONTEXT_SPEC" ||
+     "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]] ||
+    fail "the stored SELinux helper rule is not a known Cask-owned rule; refusing to migrate or overwrite it"
+  # When SELinux is currently disabled, preserve the previous owned rule in
+  # state so a later uninstall can still remove exactly that rule.
+  if [[ "$SELINUX_ACTIVE" != "1" ]]; then
+    SELINUX_STATE_FCONTEXT_SPEC="$PRIOR_SELINUX_FCONTEXT_SPEC"
+  fi
+fi
 SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
 PRIOR_SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"
 [[ "$PRIOR_SELINUX_MODULE_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_MODULE_RULE_OWNED=0
@@ -264,6 +278,10 @@ cleanup() {
     semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch "$BIN_DIR"/vibeshine-kms-capture >/dev/null 2>&1 || true
   fi
+  if [[ "$SELINUX_PRIOR_RULE_REMOVED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    semanage fcontext -a -f f -t bin_t "$PRIOR_SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
+    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch "$BIN_DIR"/vibeshine-kms-capture >/dev/null 2>&1 || true
+  fi
   if [[ "$SELINUX_MODULE_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$MODULES_DIR/$KERNEL_RELEASE/vibeshine_drm.ko" >/dev/null 2>&1 || true
@@ -317,10 +335,27 @@ systemctl daemon-reload
 
 if [[ "$SELINUX_ACTIVE" == "1" ]]; then
   existing_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  prior_selinux_context=""
+  if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+        "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]]; then
+    prior_selinux_context="$(semanage fcontext -l -C | awk -v spec="$PRIOR_SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+    if [[ -n "$prior_selinux_context" ]]; then
+      IFS=: read -r _ _ prior_selinux_type _ <<< "$prior_selinux_context"
+      [[ "$prior_selinux_type" == "bin_t" ]] ||
+        fail "the previous Cask-owned SELinux helper rule was changed outside this Cask; refusing to migrate it"
+      [[ -z "$existing_selinux_context" ]] ||
+        fail "both the old and new Vibeshine SELinux rules exist; refusing to guess ownership during migration"
+    fi
+  fi
   if [[ -n "$existing_selinux_context" ]]; then
     IFS=: read -r _ _ existing_selinux_type _ <<< "$existing_selinux_context"
     [[ "$existing_selinux_type" == "bin_t" ]] || fail "an existing SELinux rule assigns the Vibeshine helpers to $existing_selinux_type instead of bin_t; refusing to overwrite it"
-    SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
+    if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+          "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_FCONTEXT_SPEC" ]]; then
+      SELINUX_RULE_OWNED=1
+    else
+      SELINUX_RULE_OWNED=0
+    fi
   else
     semanage fcontext -a -f f -t bin_t "$SELINUX_FCONTEXT_SPEC" || fail "could not add the persistent SELinux bin_t rule for Vibeshine helpers"
     SELINUX_RULE_ADDED=1
@@ -332,6 +367,17 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
     IFS=: read -r _ _ helper_type _ <<< "$helper_context"
     [[ "$helper_type" == "bin_t" ]] || fail "SELinux did not label $BIN_DIR/$helper as bin_t (actual context: $helper_context)"
   done
+
+  # The new helper rule is now installed and all executables have been
+  # relabeled successfully. Only now remove the exact legacy Cask-owned rule.
+  if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+        "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" &&
+        -n "$prior_selinux_context" ]]; then
+    semanage fcontext -d -f f "$PRIOR_SELINUX_FCONTEXT_SPEC" ||
+      fail "could not remove the previous Cask-owned SELinux helper rule"
+    SELINUX_PRIOR_RULE_REMOVED=1
+  fi
+  SELINUX_STATE_FCONTEXT_SPEC="$SELINUX_FCONTEXT_SPEC"
 
   existing_module_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
   if [[ -n "$existing_module_selinux_context" ]]; then
@@ -363,7 +409,7 @@ KMS_CAPTURE_CAPS="$(getcap "$BIN_DIR/vibeshine-kms-capture")"
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
 printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\nselinux_module_fcontext_owned=%s\nselinux_module_fcontext_spec=%s\n' \
-  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" "$SELINUX_MODULE_RULE_OWNED" "$SELINUX_MODULE_FCONTEXT_SPEC" > "$STATE_TMP"
+  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_STATE_FCONTEXT_SPEC" "$SELINUX_MODULE_RULE_OWNED" "$SELINUX_MODULE_FCONTEXT_SPEC" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
