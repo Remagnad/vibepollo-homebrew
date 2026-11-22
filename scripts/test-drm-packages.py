@@ -41,6 +41,10 @@ for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-com
     subprocess.run(["bash", "-n", str(path)], check=True)
 launcher_script = root / "scripts/vibepollo-launcher.sh"
 subprocess.run(["sh", "-n", str(launcher_script)], check=True)
+module_updater_script = root / "scripts/vibepollo-module-update.sh"
+if not module_updater_script.is_file() or module_updater_script.is_symlink():
+    raise SystemExit(f"Missing or unsafe module updater: {module_updater_script}")
+subprocess.run(["bash", "-n", str(module_updater_script)], check=True)
 debug_prepare_script = root / ".github/scripts/prepare-debug-source.sh"
 subprocess.run(["bash", "-n", str(debug_prepare_script)], check=True)
 for name in payload_files[-3:]:
@@ -295,8 +299,24 @@ checks = [
     ("tray lifecycle menu uses a named static-storage array",
      "static struct tray_menu vibepollo_tray_menu[]" in homebrew_patches_text and
      ".menu = vibepollo_tray_menu" in homebrew_patches_text and
-     "tray.menu[7].disabled = lifecycle_helper_available ? 0 : 1;" in homebrew_patches_text and
-     "tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;" in homebrew_patches_text),
+     "tray.menu[7].disabled = !module_update_available.load() || lifecycle_action_pending.load() ? 1 : 0;" in homebrew_patches_text and
+     "tray.menu[9].checked = lifecycle_autostart_enabled.load() ? 1 : 0;" in homebrew_patches_text),
+    ("launcher detects a stale or missing module for the running kernel",
+     "VIBEPOLLO_MODULE_UPDATE_REQUIRED" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
+     "module_sha256" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
+    ("module updater rebuilds as the desktop user before requesting PolicyKit",
+     "must run as the desktop user" in module_updater_script.read_text(encoding="utf-8") and
+     "reinstall --build-from-source" in module_updater_script.read_text(encoding="utf-8") and
+     "/usr/bin/pkexec" in module_updater_script.read_text(encoding="utf-8")),
+    ("privileged lifecycle helper safely installs and records the rebuilt module",
+     'update-module)' in lifecycle_helper_text and
+     'vibeshine_drmctl_token:' in lifecycle_helper_text and
+     'update_install_state module_sha256' in lifecycle_helper_text and
+     'start_pool' in lifecycle_helper_text),
+    ("tray update action launches the user-space updater asynchronously",
+     '"Update kernel module"' in homebrew_patches_text and
+     'VIBEPOLLO_MODULE_UPDATE_SCRIPT' in homebrew_patches_text and
+     'posix_spawn(&child, script.c_str()' in homebrew_patches_text),
     ("tray lifecycle worker completions return through the GTK/GLib main context",
      '#include <glib.h>' in homebrew_patches_text and
      'g_idle_add_full(G_PRIORITY_DEFAULT' in homebrew_patches_text and
