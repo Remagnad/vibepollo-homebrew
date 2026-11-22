@@ -323,6 +323,18 @@ checks = [
     ("SELinux file-context policy includes the KMS helper",
      'vibeshine-kms-capture)' in install_text and
      'vibeshine-kms-capture)' in uninstall_text),
+    ("Cask upgrades migrate the owned legacy SELinux helper rule transactionally",
+     'PRIOR_SELINUX_FCONTEXT_SPEC="$(state_value selinux_fcontext_spec)"' in install_text and
+     'SELINUX_LEGACY_FCONTEXT_SPEC=' in install_text and
+     'both the old and new Vibeshine SELinux rules exist' in install_text and
+     'semanage fcontext -d -f f "$PRIOR_SELINUX_FCONTEXT_SPEC"' in install_text and
+     'SELINUX_PRIOR_RULE_REMOVED=1' in install_text and
+     'semanage fcontext -a -f f -t bin_t "$PRIOR_SELINUX_FCONTEXT_SPEC"' in install_text and
+     'SELINUX_STATE_FCONTEXT_SPEC' in install_text),
+    ("Cask uninstall follows the exact SELinux rule recorded by the installed version",
+     'stored_selinux_spec="$(state_value selinux_fcontext_spec)"' in uninstall_text and
+     'SELINUX_FCONTEXT_SPEC="$stored_selinux_spec"' in uninstall_text and
+     'SELINUX_LEGACY_FCONTEXT_SPEC=' in uninstall_text),
     ("Cask delegates privileged uninstall to Homebrew install steps", "uninstall_preflight_steps do" in cask_text and 'run "uninstall.sh"' in cask_text and "base: :staged_path" in cask_text and "sudo: true" in cask_text),
     ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
