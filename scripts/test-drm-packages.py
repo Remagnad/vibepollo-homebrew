@@ -310,7 +310,7 @@ checks = [
     ("Cask packages the restricted KMS helper from the pinned source bundle",
      'build-kms-helper.sh' in cask_packager_text and
      '"$tmp/vibeshine-kms-capture"' in cask_packager_text and
-     '"vibeshine-kms-capture"' in payload_files),
+     'vibeshine-kms-capture' in payload_files),
     ("Cask grants only permitted CAP_SYS_ADMIN to the dedicated helper",
      'setcap cap_sys_admin=p "$BIN_DIR/vibeshine-kms-capture"' in install_text and
      'cap_sys_admin=p' in install_text and
