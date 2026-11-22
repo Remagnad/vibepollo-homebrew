@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9/vibepollo-source-2.18.9.tar.gz"
-  sha256 "21e86a875eff5df6b4d345b81aaeba923a2c21404de4fcb0d98ee8e5dd763582"
+  sha256 "eeeec3a0afa7dedb0e3b9dcf06120c7ba2eb8bc5092d4f12b3823f77b01d8fcb"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9"
-    sha256 x86_64_linux: "cdbe27dd168993bb45b41e2455be538c51433a2af7325b1fdf9cf5cf01661478"
+    sha256 x86_64_linux: "e7397b1c180d4775763e24ed538c74e337465e5452405eefa92115c494476538"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -301,11 +301,6 @@ class VibepolloApp < Formula
       odie "Vibepollo Homebrew launcher script is missing: #{launcher_script}" unless launcher_script.file?
       cp launcher_script, bin/"vibepollo"
       chmod 0755, bin/"vibepollo"
-
-      module_updater = Pathname.new(__FILE__).realpath.dirname.parent/"scripts/vibepollo-module-update.sh"
-      odie "Vibepollo kernel-module updater script is missing: #{module_updater}" unless module_updater.file?
-      cp module_updater, libexec/"vibepollo-module-update"
-      chmod 0755, libexec/"vibepollo-module-update"
     end
   end
 
@@ -326,8 +321,6 @@ class VibepolloApp < Formula
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists libexec/"vibepollo-bin"
     assert_path_exists libexec/"vibeshine-vkms-peercred"
-    assert_path_exists libexec/"vibepollo-module-update"
-    assert_predicate libexec/"vibepollo-module-update", :executable?
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
     # Homebrew bottle relocation must not add its private /home interpreter.
     peercred_program_headers = shell_output("readelf -lW #{libexec}/vibeshine-vkms-peercred")
