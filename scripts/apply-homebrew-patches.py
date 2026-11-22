@@ -574,8 +574,48 @@ endif()""",
 
   void tray_update_kernel_module_cb([[maybe_unused]] struct tray_menu *item) {
     if (!module_update_available.load()) return;
-    BOOST_LOG(info) << "Kernel module update requested from tray"sv;
-    run_lifecycle_action("update-module", false, false);
+    bool expected = false;
+    if (!lifecycle_action_pending.compare_exchange_strong(expected, true)) return;
+    const char *script_env = std::getenv("VIBEPOLLO_MODULE_UPDATE_SCRIPT");
+    if (!script_env || script_env[0] != '/') {
+      lifecycle_action_pending.store(false);
+      BOOST_LOG(error) << "Kernel module updater path is unavailable"sv;
+      update_lifecycle_tray_menu();
+      return;
+    }
+    const std::string script(script_env);
+    update_lifecycle_tray_menu();
+    try {
+      std::thread([script]() {
+        char *argv[] = {const_cast<char *>(script.c_str()), nullptr};
+        pid_t child = -1;
+        const int spawn_error = ::posix_spawn(&child, script.c_str(), nullptr, nullptr, argv, environ);
+        int status = 0;
+        int wait_error = 0;
+        if (spawn_error == 0) {
+          pid_t waited;
+          do { waited = ::waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+          if (waited != child) wait_error = errno;
+        }
+        const bool success = spawn_error == 0 && wait_error == 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        dispatch_lifecycle_completion([success, spawn_error, wait_error]() {
+          if (success) module_update_available.store(false);
+          lifecycle_action_pending.store(false);
+          update_lifecycle_tray_menu();
+          if (success) {
+            BOOST_LOG(info) << "Kernel module update completed"sv;
+          } else {
+            BOOST_LOG(error) << "Kernel module update failed or was cancelled"sv;
+            if (spawn_error != 0) BOOST_LOG(error) << std::strerror(spawn_error);
+            else if (wait_error != 0) BOOST_LOG(error) << std::strerror(wait_error);
+          }
+        });
+      }).detach();
+    } catch (const std::system_error &exception) {
+      lifecycle_action_pending.store(false);
+      update_lifecycle_tray_menu();
+      BOOST_LOG(error) << "Could not start kernel module updater: "sv << exception.what();
+    }
   }
 
   void tray_toggle_autostart_cb([[maybe_unused]] struct tray_menu *item) {
