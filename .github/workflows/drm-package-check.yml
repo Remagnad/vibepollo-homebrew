@@ -18,8 +18,6 @@ on:
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/apply-homebrew-patches.py"
-      - "scripts/apply-kms-homebrew-patch.py"
-      - "scripts/build-kms-helper.sh"
       - "scripts/vibepollo-launcher.sh"
       - "scripts/vibepollo-module-update.sh"
       - "scripts/render-drm-packages.py"
