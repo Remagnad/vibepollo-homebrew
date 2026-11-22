@@ -299,7 +299,9 @@ checks = [
      kms_patch_text.count('if (!card.requires_presentation_events())') == 2),
     ("KMS helper build is restricted to system libdrm/libcap/libc",
      'libdrm.so.2' in kms_builder_text and 'libcap.so.2' in kms_builder_text and
-     'libc.so.6' in kms_builder_text and 'pkg-config --cflags libdrm' in kms_builder_text and 'RPATH' in kms_builder_text),
+     'libc.so.6' in kms_builder_text and 'pkg-config --cflags libdrm' in kms_builder_text and
+     'test-kms-capture-helper.c' in kms_builder_text and
+     '"$tmp/test-kms-capture-helper"' in kms_builder_text and 'RPATH' in kms_builder_text),
     ("debug build fetches the Linux libvirtualdisplay gitlink before CMake",
      "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
      'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
