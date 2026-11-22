@@ -180,7 +180,7 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
   int result = -1;
   struct dirent *entry;
   while ((entry = readdir(directory))) {
-    if (!valid_card_name(entry->d_name) || !valid_card_sysfs_path(entry->d_name)) continue;
+    if (!valid_card_name(entry->d_name)) continue;
     struct stat attributes;
     if (fstatat(dirfd(directory), entry->d_name, &attributes, AT_SYMLINK_NOFOLLOW) ||
         !S_ISCHR(attributes.st_mode) || attributes.st_uid || attributes.st_rdev != wanted) continue;
