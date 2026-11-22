@@ -28,6 +28,7 @@ version_root="$(tar -tzf "$source_archive" | sed -n '1{s,/.*,,;p;}')"
 }
 tar -xzf "$source_archive" -C "$tmp"
 source_root="$tmp/$version_root"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd -P)"
 helper_source="$source_root/packaging/linux/steamos/local/vibeshine-kms-capture.c"
 build_script="$source_root/packaging/linux/steamos/local/build-capture-helper.py"
 protocol="$source_root/src/platform/linux/kms_capture_protocol.h"
@@ -37,14 +38,19 @@ for file in "$helper_source" "$build_script" "$protocol"; do
     exit 1
   }
 done
-grep -Fq '#define VIBESHINE_KMS_CAPTURE_HELPER "/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' "$protocol" || {
-  echo "The source archive was not patched for the Homebrew KMS helper path" >&2
-  exit 1
-}
-grep -Fq 'open_card_device' "$helper_source" || {
-  echo "The source archive lacks generic physical DRM-card validation" >&2
-  exit 1
-}
+# The release archive can predate this packaging change. Apply the same
+# checked patch here so Cask payload CI can validate a branch before the app
+# bottle workflow has republished its source archive. Already-patched archives
+# are accepted, but partially patched trees still fail closed.
+if ! grep -Fq '#define VIBESHINE_KMS_CAPTURE_HELPER "/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' "$protocol" ||
+   ! grep -Fq 'open_card_device' "$helper_source" ||
+   ! grep -Fq 'restricted KMS capture helper is unavailable' "$source_root/src/platform/linux/kmsgrab.cpp"; then
+  python3 "$script_dir/apply-kms-homebrew-patch.py" "$source_root"
+fi
+grep -Fq '#define VIBESHINE_KMS_CAPTURE_HELPER "/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' "$protocol" ||
+  { echo "The source archive was not patched for the Homebrew KMS helper path" >&2; exit 1; }
+grep -Fq 'open_card_device' "$helper_source" ||
+  { echo "The source archive lacks generic physical DRM-card validation" >&2; exit 1; }
 if [[ -d "$source_root/third-party/libvirtualdisplay-linux/linux/vibeshine-drm" ]]; then
   drm_include="$source_root/third-party/libvirtualdisplay-linux/linux/vibeshine-drm"
 else
