@@ -272,8 +272,19 @@ case "$SIGN_HASH" in
 esac
 
 TMP_DIR="$(mktemp -d /var/tmp/vibepollo-drm-sign.XXXXXX)"
+STATE_FILE_BACKUP="$TMP_DIR/vibeshine-drm-install.previous"
+STATE_FILE_BACKED_UP=0
+STATE_FILE_UPDATED=0
 cleanup() {
-  rm -rf -- "$TMP_DIR"
+  if [[ "$STATE_FILE_UPDATED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    if [[ "$STATE_FILE_BACKED_UP" == "1" ]]; then
+      state_restore_tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.restore.XXXXXX")"
+      cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp"
+      mv -f -- "$state_restore_tmp" "$STATE_FILE"
+    else
+      rm -f -- "$STATE_FILE"
+    fi
+  fi
   if [[ "$SELINUX_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch "$BIN_DIR"/vibeshine-kms-capture >/dev/null 2>&1 || true
@@ -286,8 +297,13 @@ cleanup() {
     semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$MODULES_DIR/$KERNEL_RELEASE/vibeshine_drm.ko" >/dev/null 2>&1 || true
   fi
+  rm -rf -- "$TMP_DIR"
 }
 trap cleanup EXIT HUP INT TERM
+if [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]]; then
+  cp -p -- "$STATE_FILE" "$STATE_FILE_BACKUP"
+  STATE_FILE_BACKED_UP=1
+fi
 cp -- "$MODULE_FILE" "$TMP_DIR/vibeshine_drm.ko"
 "$SIGN_FILE" "$SIGN_HASH" "$PRIVATE_KEY" "$CERTIFICATE" "$TMP_DIR/vibeshine_drm.ko"
 SIG_ID="$(modinfo -F sig_id "$TMP_DIR/vibeshine_drm.ko" 2>/dev/null || true)"
@@ -413,6 +429,7 @@ printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtual
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
+STATE_FILE_UPDATED=1
 printf 'socket_group=%s\n' "$SOCKET_GROUP" >> "$STATE_FILE"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
