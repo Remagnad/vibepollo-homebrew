@@ -287,6 +287,10 @@ checks = [
     ("Debug CI compiles KMS with host DRM/libcap headers",
      "-DSUNSHINE_ENABLE_DRM=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
      "libdrm-dev libcap-dev pkgconf" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
+    ("PR Debug builds do not block releases or mutate shared dependency caches",
+     "vibepollo-debug-pr-{0}" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "steps.brew-paths.outcome == 'success' && github.event_name != 'pull_request'" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "steps.debug-ccache-save.outcome == 'success' && github.event_name != 'pull_request'" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
     ("KMS source patch routes capability-free physical cards through IPC",
      'kms_capture::client_t::open(fd.el)' in kms_patch_text and
      '"/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' in kms_patch_text and
