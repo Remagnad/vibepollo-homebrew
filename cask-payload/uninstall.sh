@@ -9,6 +9,7 @@ STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 BIN_DIR="$DRM_ROOT/bin"
 SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch|vibeshine-kms-capture)"
+SELINUX_LEGACY_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
 SELINUX_MODULE_FCONTEXT_SPEC="$DRM_ROOT/modules/[^/]+/vibeshine_drm[.]ko"
 SELINUX_RULE_OWNED=0
 SELINUX_MODULE_RULE_OWNED=0
@@ -109,6 +110,13 @@ if [[ -e "$STATE_FILE" || -L "$STATE_FILE" ]]; then
   STATE_TRUSTED=1
   SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
   [[ "$SELINUX_RULE_OWNED" == "1" ]] || SELINUX_RULE_OWNED=0
+  if [[ "$SELINUX_RULE_OWNED" == "1" ]]; then
+    stored_selinux_spec="$(state_value selinux_fcontext_spec)"
+    [[ "$stored_selinux_spec" == "$SELINUX_FCONTEXT_SPEC" ||
+       "$stored_selinux_spec" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]] ||
+      fail "the stored SELinux helper rule is not a known Cask-owned rule; refusing to remove it"
+    SELINUX_FCONTEXT_SPEC="$stored_selinux_spec"
+  fi
   SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"
   [[ "$SELINUX_MODULE_RULE_OWNED" == "1" ]] || SELINUX_MODULE_RULE_OWNED=0
 fi
