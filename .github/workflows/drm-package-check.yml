@@ -79,7 +79,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev
+          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev pkgconf
 
       - name: Validate Formula, Cask, payload checksum and lifecycle policy
         env:
