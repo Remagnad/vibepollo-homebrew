@@ -311,6 +311,11 @@ __BOTTLE_BLOCK__
       cp launcher_script, bin/"vibepollo"
       chmod 0755, bin/"vibepollo"
 
+      module_updater = Pathname.new(__FILE__).realpath.dirname.parent/"scripts/vibepollo-module-update.sh"
+      odie "Vibepollo kernel-module updater script is missing: #{module_updater}" unless module_updater.file?
+      cp module_updater, libexec/"vibepollo-module-update"
+      chmod 0755, libexec/"vibepollo-module-update"
+
     end
   end
 
@@ -330,6 +335,8 @@ __BOTTLE_BLOCK__
   test do
     assert_match "version: #{version}", shell_output("#{bin}/vibepollo --version")
     assert_path_exists libexec/"vibepollo-bin"
+    assert_path_exists libexec/"vibepollo-module-update"
+    assert_predicate libexec/"vibepollo-module-update", :executable?
     assert_path_exists libexec/"vibeshine-vkms-peercred"
     assert_predicate libexec/"vibeshine-vkms-peercred", :executable?
     # Homebrew bottle relocation must not add its private /home interpreter.
