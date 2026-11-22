@@ -564,6 +564,17 @@ endif()""",
     run_lifecycle_action("stop-after-pid", false, false);
   }
 
+  static std::atomic<bool> module_update_available {
+    std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED") != nullptr &&
+    std::string(std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED")) == "1"
+  };
+
+  void tray_update_kernel_module_cb([[maybe_unused]] struct tray_menu *item) {
+    if (!module_update_available.load()) return;
+    BOOST_LOG(info) << "Kernel module update requested from tray"sv;
+    run_lifecycle_action("update-module", false, false);
+  }
+
   void tray_toggle_autostart_cb([[maybe_unused]] struct tray_menu *item) {
     const bool enable = !lifecycle_autostart_enabled.load();
     BOOST_LOG(info) << (enable ? "Enabling"sv : "Disabling"sv) << " Vibepollo system autostart";
@@ -590,6 +601,8 @@ endif()""",
     {.text = "Restart", .cb = tray_restart_cb},
     {.text = "Quit", .cb = tray_quit_cb},
     {.text = "-"},
+    {.text = "Update kernel module", .disabled = 1,
+     .cb = tray_update_kernel_module_cb},
     {.text = "Quit and stop services", .disabled = 0,
      .cb = tray_quit_and_stop_services_cb},
     {.text = "Start with system", .disabled = 0, .checked = 0, .checkbox = 1,
@@ -637,9 +650,10 @@ endif()""",
       return;
     }
     const bool disabled = !lifecycle_helper_available || lifecycle_action_pending.load();
-    tray.menu[7].disabled = disabled ? 1 : 0;
+    tray.menu[7].disabled = !module_update_available.load() || lifecycle_action_pending.load() ? 1 : 0;
     tray.menu[8].disabled = disabled ? 1 : 0;
-    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
+    tray.menu[9].disabled = disabled ? 1 : 0;
+    tray.menu[9].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
     if (tray_initialized.load()) {
       tray_update(&tray);
     }
@@ -654,9 +668,10 @@ endif()""",
         "    int attempt = 0;\n",
         """#ifdef __linux__
     // Apply runtime state after the static menu table has been initialized.
-    tray.menu[7].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[7].disabled = module_update_available.load() ? 0 : 1;
     tray.menu[8].disabled = lifecycle_helper_available ? 0 : 1;
-    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
+    tray.menu[9].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[9].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
 #endif
 
 """,
