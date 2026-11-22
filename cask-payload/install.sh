@@ -278,9 +278,15 @@ STATE_FILE_UPDATED=0
 cleanup() {
   if [[ "$STATE_FILE_UPDATED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     if [[ "$STATE_FILE_BACKED_UP" == "1" ]]; then
-      state_restore_tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.restore.XXXXXX")"
-      cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp"
-      mv -f -- "$state_restore_tmp" "$STATE_FILE"
+      state_restore_tmp=""
+      if state_restore_tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.restore.XXXXXX")" &&
+         cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp" &&
+         mv -f -- "$state_restore_tmp" "$STATE_FILE"; then
+        :
+      else
+        printf 'vibepollo Cask installer: error: could not restore the previous ownership state during rollback\\n' >&2
+        [[ -z "$state_restore_tmp" ]] || rm -f -- "$state_restore_tmp"
+      fi
     else
       rm -f -- "$STATE_FILE"
     fi
