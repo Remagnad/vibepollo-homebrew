@@ -300,13 +300,6 @@ mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
 for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
   mv -f -- "$BIN_DIR/$helper.new" "$BIN_DIR/$helper"
 done
-# The app remains capability-free. Only this dedicated helper receives the
-# single permitted capability required to export active KMS framebuffers.
-setcap cap_sys_admin=p "$BIN_DIR/vibeshine-kms-capture" ||
-  fail "could not assign CAP_SYS_ADMIN to the restricted KMS helper (install the host libcap setcap utility)"
-KMS_CAPTURE_CAPS="$(getcap "$BIN_DIR/vibeshine-kms-capture")"
-[[ "$KMS_CAPTURE_CAPS" == "$BIN_DIR/vibeshine-kms-capture cap_sys_admin=p" ]] ||
-  fail "the KMS helper file capabilities are not exactly cap_sys_admin=p (actual: ${KMS_CAPTURE_CAPS:-none})"
 UNIT_DIR="/etc/systemd/system"
 install -d -o root -g root -m 0755 "$UNIT_DIR"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
@@ -359,6 +352,14 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
   [[ "$module_type" == "modules_object_t" ]] ||
     fail "SELinux did not label $MODULE_DEST_PATH as modules_object_t (actual context: $module_context)"
 fi
+
+# Apply the file capability after SELinux relabeling; verify the exact permitted
+# set that the KMS client's trust check expects. The main app receives none.
+setcap cap_sys_admin=p "$BIN_DIR/vibeshine-kms-capture" ||
+  fail "could not assign CAP_SYS_ADMIN to the restricted KMS helper (install the host libcap setcap utility)"
+KMS_CAPTURE_CAPS="$(getcap "$BIN_DIR/vibeshine-kms-capture")"
+[[ "$KMS_CAPTURE_CAPS" == "$BIN_DIR/vibeshine-kms-capture cap_sys_admin=p" ]] ||
+  fail "the KMS helper file capabilities are not exactly cap_sys_admin=p (actual: ${KMS_CAPTURE_CAPS:-none})"
 
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
 printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\nselinux_module_fcontext_owned=%s\nselinux_module_fcontext_spec=%s\n' \
