@@ -12,7 +12,7 @@ output="$2"
   echo "Missing Vibepollo source archive: $source_archive" >&2
   exit 1
 }
-for tool in cc python3 readelf tar; do
+for tool in cc python3 readelf tar pkg-config; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "$tool is required to build the restricted KMS helper" >&2
     exit 1
@@ -62,7 +62,28 @@ fi
 }
 
 mkdir -p -- "$(dirname -- "$output")"
-python3 "$build_script" --cc cc --output "$output" --drm-include "$drm_include" --readelf readelf
+
+# Upstream's build script keeps its hardened compiler flags, but the system
+# libdrm headers are not always on the compiler's default include path
+# (for example, Ubuntu installs drm.h under /usr/include/libdrm). Wrap the
+# compiler with the host pkg-config flags instead of assuming a distro path.
+libdrm_cflags="$(pkg-config --cflags libdrm)" || {
+  echo "Could not query system libdrm compiler flags with pkg-config" >&2
+  exit 1
+}
+compiler_path="$(command -v cc)"
+python3 - "$tmp/kms-helper-cc" "$compiler_path" "$libdrm_cflags" <<'PY'
+import pathlib
+import shlex
+import sys
+
+output, compiler, cflags = sys.argv[1:]
+command = [compiler, *shlex.split(cflags)]
+path = pathlib.Path(output)
+path.write_text("#!/bin/sh\\nset -eu\\nexec " + shlex.join(command) + ' "$@"\\n', encoding="utf-8")
+PY
+chmod 0755 "$tmp/kms-helper-cc"
+python3 "$build_script" --cc "$tmp/kms-helper-cc" --output "$output" --drm-include "$drm_include" --readelf readelf
 
 dynamic="$(readelf -dW "$output")"
 needed="$(grep -oE '\(NEEDED\).* \[[^]]+\]' <<< "$dynamic" | sed -E 's/.*\[([^]]+)\]/\1/' | sort)"
