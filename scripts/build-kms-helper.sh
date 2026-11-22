@@ -19,7 +19,6 @@ for tool in cc python3 readelf tar; do
   }
 done
 
-script_dir="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")" && pwd -P)"
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 version_root="$(tar -tzf "$source_archive" | sed -n '1{s,/.*,,;p;}')"
