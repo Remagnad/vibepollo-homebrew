@@ -171,12 +171,20 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
                             bool *is_vibeshine) {
   const dev_t wanted = makedev(card_major, card_minor);
   if (!is_vibeshine || major(wanted) != card_major || minor(wanted) != card_minor ||
-      !card_major) {
+      card_major != 226) {
     errno = EACCES; return -1;
   }
   *is_vibeshine = false;
   DIR *directory = opendir("/dev/dri");
   if (!directory) return -1;
+  struct stat directory_attributes;
+  if (fstat(dirfd(directory), &directory_attributes) ||
+      !S_ISDIR(directory_attributes.st_mode) || directory_attributes.st_uid ||
+      (directory_attributes.st_mode & 0022)) {
+    closedir(directory);
+    errno = EACCES;
+    return -1;
+  }
   int result = -1;
   struct dirent *entry;
   while ((entry = readdir(directory))) {
@@ -282,11 +290,17 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
     closedir(cards);
   }""",
         """  bool is_vibeshine = false;
-  assert(open_card_device(1, 3, &is_vibeshine) == -1 && errno == EACCES);
+  assert(open_card_device(0, 3, &is_vibeshine) == -1 && errno == EACCES);
   assert(driver_name_is_vibeshine("vibeshine_drm", 13));
   assert(!driver_name_is_vibeshine("amdgpu", 6));
   assert(!driver_name_is_vibeshine("nvidia-drm", 10));
   assert(!driver_name_is_vibeshine("i915", 4));""",
+    )
+
+    replace_once(
+        helper_test,
+        'puts("Capture helper request validation, physical-device refusal, fd transport, and capability refusal passed.");',
+        'puts("Capture helper request validation, DRM driver classification, fd transport, and capability refusal passed.");',
     )
 
     print("Applied Homebrew KMS helper path and generic physical-card capture support.")
