@@ -291,7 +291,8 @@ checks = [
      'kms_capture::client_t::open(fd.el)' in kms_patch_text and
      '"/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' in kms_patch_text and
      'open_card_device' in kms_patch_text and
-     'if (!*card_is_vibeshine) return EOPNOTSUPP;' in kms_patch_text),
+     'if (!*card_is_vibeshine) return EOPNOTSUPP;' in kms_patch_text and
+     kms_patch_text.count('if (!card.requires_presentation_events())') == 2),
     ("KMS helper build is restricted to system libdrm/libcap/libc",
      'libdrm.so.2' in kms_builder_text and 'libcap.so.2' in kms_builder_text and
      'libc.so.6' in kms_builder_text and 'pkg-config --cflags libdrm' in kms_builder_text and 'RPATH' in kms_builder_text),
