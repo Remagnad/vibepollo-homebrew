@@ -285,13 +285,15 @@ checks = [
      "stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle" in
      (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8") and
      " & 0022" in (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
-    ("desktop-session autostart uses trusted pkexec and a verified helper",
-     '[[ -x /usr/bin/pkexec ]]' in
+    ("desktop-session autostart delegates to the freshness-aware app launcher",
+     '[[ -f "$LIFECYCLE_STATE" && ! -L "$LIFECYCLE_STATE" ]]' in
      (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
-     '[[ -f "$LIFECYCLE_HELPER" && ! -L "$LIFECYCLE_HELPER" ]]' in
+     '[[ -x "$app_prefix/bin/vibepollo" ]]' in
      (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
-     '/usr/bin/pkexec "$LIFECYCLE_HELPER" start' in
-     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8")),
+     'exec "$app_prefix/bin/vibepollo" "$@"' in
+     (payload_dir / "vibepollo-user-launch").read_text(encoding="utf-8") and
+     'VIBEPOLLO_MODULE_UPDATE_REQUIRED' in
+     (root / "scripts/vibepollo-launcher.sh").read_text(encoding="utf-8")),
     ("tray lifecycle controls are patched into the Homebrew source build",
      "Quit and stop services" in homebrew_patches_text and
      "Start with system" in homebrew_patches_text and
