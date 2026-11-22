@@ -74,6 +74,12 @@ cask "vibepollo" do
     the desktop user who invoked the Cask installer, through that user's
     private primary group while keeping the socket itself root-owned.
 
+    Physical monitor capture through KMS is enabled in the app build and uses
+    a separate root-owned helper with only CAP_SYS_ADMIN in its permitted
+    capability set; the main Vibepollo process receives no capabilities.
+    The host must provide the libdrm and libcap runtime libraries and the
+    setcap/getcap utilities for the Cask to install and verify this helper.
+
     For manual administration, the pool can still be managed with:
 
       sudo systemctl start vibeshine-vkms.service
