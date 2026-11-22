@@ -331,6 +331,12 @@ checks = [
      'SELINUX_PRIOR_RULE_REMOVED=1' in install_text and
      'semanage fcontext -a -f f -t bin_t "$PRIOR_SELINUX_FCONTEXT_SPEC"' in install_text and
      'SELINUX_STATE_FCONTEXT_SPEC' in install_text),
+    ("SELinux migration rollback restores both old rule and previous ownership state",
+     'STATE_FILE_BACKUP="$TMP_DIR/vibeshine-drm-install.previous"' in install_text and
+     'cp -p -- "$STATE_FILE" "$STATE_FILE_BACKUP"' in install_text and
+     'STATE_FILE_UPDATED=1' in install_text and
+     'cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp"' in install_text and
+     'rm -f -- "$STATE_FILE"' in install_text),
     ("Cask uninstall follows the exact SELinux rule recorded by the installed version",
      'stored_selinux_spec="$(state_value selinux_fcontext_spec)"' in uninstall_text and
      'SELINUX_FCONTEXT_SPEC="$stored_selinux_spec"' in uninstall_text and
