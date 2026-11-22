@@ -25,6 +25,7 @@ on:
       - ".github/workflows/debug-build.yml"
       - "scripts/prepare-source.sh"
       - "scripts/apply-homebrew-patches.py"
+      - "scripts/apply-kms-homebrew-patch.py"
       - "scripts/vibepollo-launcher.sh"
       - ".github/scripts/prepare-debug-source.sh"
       - "Formula/vibepollo-app.rb"
