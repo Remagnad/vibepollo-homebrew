@@ -314,6 +314,18 @@ checks = [
      'case "$resolved" in' in module_updater_script.read_text(encoding="utf-8") and
      '"$brew_prefix"/Cellar/vibepollo-drm/*' in module_updater_script.read_text(encoding="utf-8") and
      'resolve_drm_formula_prefix ||' in module_updater_script.read_text(encoding="utf-8")),
+    ("the upstream Formula renderer packages the module updater in libexec",
+     'module_updater = Pathname.new(__FILE__).realpath.dirname.parent/"scripts/vibepollo-module-update.sh"' in
+     (root / "scripts/render-formula.py").read_text(encoding="utf-8") and
+     'cp module_updater, libexec/"vibepollo-module-update"' in
+     (root / "scripts/render-formula.py").read_text(encoding="utf-8") and
+     'assert_path_exists libexec/"vibepollo-module-update"' in
+     (root / "scripts/render-formula.py").read_text(encoding="utf-8")),
+    ("both upstream watcher build taps stage the module updater",
+     (root / ".github/workflows/watch-upstream-release.yml").read_text(encoding="utf-8").count(
+       'cp scripts/vibepollo-module-update.sh "$tap_path/scripts/vibepollo-module-update.sh"') == 2 and
+     'scripts/vibepollo-module-update\\.sh' in
+     (root / ".github/workflows/watch-upstream-release.yml").read_text(encoding="utf-8")),
     ("module updater rebuilds as the desktop user before requesting PolicyKit",
      "must run as the desktop user" in module_updater_script.read_text(encoding="utf-8") and
      "reinstall --build-from-source" in module_updater_script.read_text(encoding="utf-8") and

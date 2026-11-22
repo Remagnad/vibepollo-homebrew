@@ -18,6 +18,7 @@ on:
       - "scripts/vibepollo-launcher.sh"
       - "scripts/vibepollo-module-update.sh"
       - "scripts/render-drm-packages.py"
+      - "scripts/render-formula.py"
       - "cask-payload/**"
       - "integration/**"
   push:
@@ -34,6 +35,7 @@ on:
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/render-drm-packages.py"
+      - "scripts/render-formula.py"
       - "cask-payload/**"
       - "integration/**"
 

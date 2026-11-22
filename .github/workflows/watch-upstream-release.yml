@@ -143,7 +143,7 @@ jobs:
             # Match only inputs that affect the application source build or
             # its bottle. Avoid shell case-pattern continuations here so this
             # block remains valid under GitHub's generated Bash script.
-            if grep -Eq '^(scripts/prepare-source\.sh|scripts/apply-homebrew-patches\.py|scripts/render-formula\.py|scripts/install-cuda-components\.sh|scripts/vibepollo-launcher\.sh|scripts/prune-actions-caches\.sh|Formula/vibepollo-app\.rb)$' <<< "$changed_files"; then
+            if grep -Eq '^(scripts/prepare-source\.sh|scripts/apply-homebrew-patches\.py|scripts/render-formula\.py|scripts/install-cuda-components\.sh|scripts/vibepollo-launcher\.sh|scripts/vibepollo-module-update\.sh|scripts/prune-actions-caches\.sh|Formula/vibepollo-app\.rb)$' <<< "$changed_files"; then
               force_rebuild=true
             fi
           fi
@@ -501,6 +501,7 @@ jobs:
           mkdir -p "$tap_path/Formula" "$tap_path/scripts"
           cp Formula/vibepollo-app.rb "$tap_path/Formula/vibepollo-app.rb"
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
+          cp scripts/vibepollo-module-update.sh "$tap_path/scripts/vibepollo-module-update.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
       - name: Unlink outdated cached Vibepollo dependencies before upgrades
@@ -828,6 +829,7 @@ jobs:
           tap_path="$(brew --repo Remagnad/vibepollo-homebrew)"
           mkdir -p "$tap_path/Formula" "$tap_path/scripts"
           cp scripts/vibepollo-launcher.sh "$tap_path/scripts/vibepollo-launcher.sh"
+          cp scripts/vibepollo-module-update.sh "$tap_path/scripts/vibepollo-module-update.sh"
           echo "tap_path=$tap_path" >> "$GITHUB_ENV"
 
       - name: Verify build artifact and render Formula in isolated publish job
