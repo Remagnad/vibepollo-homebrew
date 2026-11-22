@@ -212,7 +212,7 @@ __BOTTLE_BLOCK__
         "-DCMAKE_CUDA_TOOLKIT_ROOT_DIR:PATH=#{cuda_prefix}",
         "-DCUDAToolkit_ROOT:PATH=#{cuda_prefix}",
         "-DCMAKE_CUDA_HOST_COMPILER=#{cxx_compiler}",
-        "-DSUNSHINE_ENABLE_DRM=OFF",
+        "-DSUNSHINE_ENABLE_DRM=ON",
         "-DSUNSHINE_ENABLE_TRAY=ON",
         "-DSUNSHINE_ENABLE_PYROWAVE=ON",
         "-DSUNSHINE_ENABLE_VAAPI=ON",
