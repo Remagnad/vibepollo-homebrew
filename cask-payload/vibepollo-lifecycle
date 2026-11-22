@@ -420,8 +420,9 @@ update_kernel_module() {
   [[ -n "$app_prefix_real" && "$app_prefix_real" == */Cellar/vibepollo-app/* ]] ||
     fail "could not resolve the installed Homebrew Vibepollo app keg"
   brew_prefix="${app_prefix_real%%/Cellar/*}"
-  drm_prefix="$brew_prefix/opt/vibepollo-drm"
-  [[ -d "$drm_prefix" && ! -L "$drm_prefix" ]] || fail "vibepollo-drm Formula is not installed"
+  drm_prefix="$(readlink -f "$brew_prefix/opt/vibepollo-drm" 2>/dev/null || true)"
+  [[ -n "$drm_prefix" && "$drm_prefix" == "$brew_prefix"/Cellar/vibepollo-drm/* && -d "$drm_prefix" && ! -L "$drm_prefix" ]] ||
+    fail "vibepollo-drm Formula is not installed or its opt link is unsafe"
   formula_kernel="$(cat "$drm_prefix/libexec/kernel-release" 2>/dev/null || true)"
   formula_version="$(cat "$drm_prefix/libexec/module-version" 2>/dev/null || true)"
   formula_commit="$(cat "$drm_prefix/libexec/libvirtualdisplay-commit" 2>/dev/null || true)"
