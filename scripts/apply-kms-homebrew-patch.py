@@ -119,14 +119,20 @@ static int open_managed_device(uint32_t card_major, uint32_t card_minor) {
   if (result < 0) errno = EACCES;
   return result;
 }""",
-        """static bool valid_card_sysfs_path(const char *card_name) {
+        """static bool card_sysfs_path(const char *card_name, char *resolved, size_t resolved_size) {
   struct stat sysfs;
-  char path[PATH_MAX], resolved[PATH_MAX];
+  char path[PATH_MAX];
   static const char sysfs_devices[] = "/sys/devices/";
-  return snprintf(path, sizeof(path), "/sys/class/drm/%s", card_name) < (int) sizeof(path) &&
-      realpath(path, resolved) &&
-      !strncmp(resolved, sysfs_devices, sizeof(sysfs_devices) - 1) &&
-      !stat(resolved, &sysfs) && S_ISDIR(sysfs.st_mode) && !sysfs.st_uid;
+  if (!resolved || !resolved_size ||
+      snprintf(path, sizeof(path), "/sys/class/drm/%s", card_name) >= (int) sizeof(path) ||
+      !realpath(path, resolved) || strncmp(resolved, sysfs_devices, sizeof(sysfs_devices) - 1) ||
+      stat(resolved, &sysfs) || !S_ISDIR(sysfs.st_mode) || sysfs.st_uid) return false;
+  return true;
+}
+
+static bool is_vibeshine_sysfs_path(const char *resolved) {
+  static const char managed_root[] = "/sys/devices/faux/vibeshine/";
+  return resolved && !strncmp(resolved, managed_root, sizeof(managed_root) - 1);
 }
 
 static bool driver_name_is_vibeshine(const char *name, int name_length) {
@@ -140,12 +146,23 @@ static bool managed_device_identity(int fd, const char *card_name, dev_t device,
   struct stat opened;
   if (!is_vibeshine) return false;
   *is_vibeshine = false;
+  char sysfs_path[PATH_MAX];
   if (fstat(fd, &opened) || !S_ISCHR(opened.st_mode) || opened.st_uid ||
-      opened.st_rdev != device || !valid_card_sysfs_path(card_name) ||
+      opened.st_rdev != device || !card_sysfs_path(card_name, sysfs_path, sizeof(sysfs_path)) ||
       drmGetNodeTypeFromFd(fd) != DRM_NODE_PRIMARY) return false;
   drmVersionPtr version = drmGetVersion(fd);
   const bool valid = version && version->name && version->name_len > 0;
-  if (valid) *is_vibeshine = driver_name_is_vibeshine(version->name, version->name_len);
+  if (valid) {
+    const bool driver_is_vibeshine = driver_name_is_vibeshine(version->name, version->name_len);
+    const bool path_is_vibeshine = is_vibeshine_sysfs_path(sysfs_path);
+    // Never let a device claim the private-driver protocol unless both the
+    // DRM driver and its sysfs origin identify the managed virtual card.
+    if (driver_is_vibeshine != path_is_vibeshine) {
+      drmFreeVersion(version);
+      return false;
+    }
+    *is_vibeshine = driver_is_vibeshine;
+  }
   if (version) drmFreeVersion(version);
   return valid;
 }
@@ -154,7 +171,7 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
                             bool *is_vibeshine) {
   const dev_t wanted = makedev(card_major, card_minor);
   if (!is_vibeshine || major(wanted) != card_major || minor(wanted) != card_minor ||
-      card_major != 226) {
+      !card_major) {
     errno = EACCES; return -1;
   }
   *is_vibeshine = false;
@@ -194,11 +211,7 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
   return result;
 }
 
-// Retain the small test-facing wrapper used by the SteamOS unit test.
-static int open_managed_device(uint32_t card_major, uint32_t card_minor) {
-  bool is_vibeshine = false;
-  return open_card_device(card_major, card_minor, &is_vibeshine);
-}""",
+""",
     )
 
     replace_once(
@@ -268,7 +281,8 @@ static int open_managed_device(uint32_t card_major, uint32_t card_minor) {
     }
     closedir(cards);
   }""",
-        """  assert(open_managed_device(1, 3) == -1 && errno == EACCES);
+        """  bool is_vibeshine = false;
+  assert(open_card_device(1, 3, &is_vibeshine) == -1 && errno == EACCES);
   assert(driver_name_is_vibeshine("vibeshine_drm", 13));
   assert(!driver_name_is_vibeshine("amdgpu", 6));
   assert(!driver_name_is_vibeshine("nvidia-drm", 10));
