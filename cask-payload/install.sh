@@ -284,7 +284,7 @@ cleanup() {
          mv -f -- "$state_restore_tmp" "$STATE_FILE"; then
         :
       else
-        printf 'vibepollo Cask installer: error: could not restore the previous ownership state during rollback\\n' >&2
+        printf 'vibepollo Cask installer: error: could not restore the previous ownership state during rollback\n' >&2
         [[ -z "$state_restore_tmp" ]] || rm -f -- "$state_restore_tmp"
       fi
     else
