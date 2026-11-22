@@ -416,7 +416,7 @@ update_kernel_module() {
 
   current_kernel="$(uname -r)"
   [[ -n "$current_kernel" ]] || fail "could not determine the running kernel"
-  drm_prefix="$(dirname "$APP_PREFIX")/../opt/vibepollo-drm"
+  drm_prefix="${APP_PREFIX%%/Cellar/*}/opt/vibepollo-drm"
   drm_prefix="$(readlink -f "$drm_prefix" 2>/dev/null || true)"
   [[ -n "$drm_prefix" && -d "$drm_prefix" ]] || fail "vibepollo-drm Formula is not installed"
   formula_kernel="$(cat "$drm_prefix/libexec/kernel-release" 2>/dev/null || true)"

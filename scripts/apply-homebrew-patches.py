@@ -526,6 +526,9 @@ endif()""",
           if (success && update_autostart) {
             lifecycle_autostart_enabled.store(desired_autostart);
           }
+          if (success && action == "update-module") {
+            module_update_available.store(false);
+          }
           lifecycle_action_pending.store(false);
           update_lifecycle_tray_menu();
           if (!success) {
