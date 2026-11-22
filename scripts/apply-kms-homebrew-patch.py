@@ -223,6 +223,34 @@ static int open_card_device(uint32_t card_major, uint32_t card_minor,
     )
 
     replace_once(
+        kmsgrab,
+        """        int ioctl_error = 0;
+        if (card.capture_helper) {
+          if (card.capture_helper->frame(request) != 0) {""",
+        """        if (!card.requires_presentation_events()) {
+          BOOST_LOG(error) << "Presentation frame export is only supported by the managed Vibeshine DRM driver."sv;
+          return frame_export_e::unsupported;
+        }
+        int ioctl_error = 0;
+        if (card.capture_helper) {
+          if (card.capture_helper->frame(request) != 0) {""",
+    )
+
+    replace_once(
+        kmsgrab,
+        """          int ioctl_error = 0;
+          if (card.capture_helper) {
+            if (card.capture_helper->wait(request) != 0) {""",
+        """          if (!card.requires_presentation_events()) {
+            presentation_mode.deactivate();
+            return presentation_wait_e::unsupported;
+          }
+          int ioctl_error = 0;
+          if (card.capture_helper) {
+            if (card.capture_helper->wait(request) != 0) {""",
+    )
+
+    replace_once(
         helper,
         """static int perform(int *card, const struct vibeshine_kms_capture_request *request,
                    struct vibeshine_kms_capture_response *response) {
