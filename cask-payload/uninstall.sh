@@ -8,7 +8,7 @@ DRM_ROOT="/var/lib/vibepollo/drm"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
 BIN_DIR="$DRM_ROOT/bin"
-SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch|vibeshine-kms-capture)"
 SELINUX_MODULE_FCONTEXT_SPEC="$DRM_ROOT/modules/[^/]+/vibeshine_drm[.]ko"
 SELINUX_RULE_OWNED=0
 SELINUX_MODULE_RULE_OWNED=0
@@ -30,7 +30,7 @@ state_value() {
 }
 remove_owned_selinux_fcontext() {
   [[ "$SELINUX_RULE_OWNED" == "1" ]] || return 0
-  for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+  for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
     helper="$BIN_DIR/$helper_name"
     [[ ! -e "$helper" && ! -L "$helper" ]] || fail "cannot remove the Cask-owned SELinux rule while helper remains: $helper"
   done
@@ -92,7 +92,7 @@ unit_is_active() {
 
 [[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"
 log "starting privileged uninstall"
-for command_name in stat awk sha256sum timeout; do
+for command_name in stat awk sha256sum timeout getcap; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 if [[ ! -e "$DRM_ROOT" && ! -L "$DRM_ROOT" ]]; then
@@ -249,7 +249,7 @@ for directory in bin state; do
   require_root_directory "$path"
   case "$directory" in
     bin)
-      for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+      for helper_name in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
         helper="$path/$helper_name"
         [[ -e "$helper" || -L "$helper" ]] || continue
         [[ -f "$helper" && ! -L "$helper" ]] || fail "refusing unsafe helper path: $helper"
@@ -263,6 +263,12 @@ for directory in bin state; do
         else
           actual_helper_sha="$(sha256sum "$helper" | awk '{print $1}')"
           [[ "$actual_helper_sha" == "$expected_helper_sha" ]] || fail "$helper_name was modified outside this Cask; leaving it untouched"
+        fi
+        if [[ "$helper_name" == "vibeshine-kms-capture" ]]; then
+          expected_caps="$helper cap_sys_admin=p"
+          actual_caps="$(getcap "$helper")"
+          [[ "$actual_caps" == "$expected_caps" ]] ||
+            fail "KMS helper file capabilities changed outside this Cask; preserving $helper"
         fi
         rm -f -- "$helper"
       done
