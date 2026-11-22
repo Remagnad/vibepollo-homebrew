@@ -85,6 +85,24 @@ PY
 chmod 0755 "$tmp/kms-helper-cc"
 python3 "$build_script" --cc "$tmp/kms-helper-cc" --output "$output" --drm-include "$drm_include" --readelf readelf
 
+# Compile and execute upstream's parser/transport regression test against the
+# same patched helper source. This runs without file capabilities and verifies
+# that malformed requests, physical/virtual driver classification, SCM_RIGHTS
+# descriptor transport and capability refusal behave as expected.
+helper_test="$source_root/packaging/linux/steamos/tests/test-kms-capture-helper.c"
+[[ -s "$helper_test" ]] || {
+  echo "The selected upstream release lacks the KMS helper regression test" >&2
+  exit 1
+}
+read -r -a libdrm_flags <<< "$libdrm_cflags"
+read -r -a libdrm_libs <<< "$(pkg-config --libs libdrm)"
+"$compiler_path" -std=c11 -O2 -Wall -Wextra -Werror \
+  -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie \
+  -I"$source_root" -I"$drm_include" "${libdrm_flags[@]}" \
+  "$helper_test" -o "$tmp/test-kms-capture-helper" \
+  "${libdrm_libs[@]}" -lcap
+"$tmp/test-kms-capture-helper"
+
 dynamic="$(readelf -dW "$output")"
 needed="$(grep -oE '\(NEEDED\).* \[[^]]+\]' <<< "$dynamic" | sed -E 's/.*\[([^]]+)\]/\1/' | sort)"
 expected="$(printf '%s\n' libc.so.6 libcap.so.2 libdrm.so.2 | sort)"
