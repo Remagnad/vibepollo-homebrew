@@ -284,6 +284,9 @@ checks = [
     ("app Formula and generated Formula both enable KMS",
      '"-DSUNSHINE_ENABLE_DRM=ON"' in app_formula_text and
      '"-DSUNSHINE_ENABLE_DRM=ON"' in formula_template_text),
+    ("Debug CI compiles KMS with host DRM/libcap headers",
+     '"-DSUNSHINE_ENABLE_DRM=ON"' in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "libdrm-dev libcap-dev pkgconf" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
     ("KMS source patch routes capability-free physical cards through IPC",
      'kms_capture::client_t::open(fd.el)' in kms_patch_text and
      '"/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' in kms_patch_text and
