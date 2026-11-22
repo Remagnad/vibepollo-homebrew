@@ -393,6 +393,132 @@ disable_autostart() {
   log "autostart disabled; any services already running were left untouched"
 }
 
+update_install_state() {
+  local key="$1" value="$2" temp
+  temp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
+  awk -F= -v key="$key" -v value="$value" '
+    BEGIN { seen=0 }
+    $1 == key { print key "=" value; seen=1; next }
+    { print }
+    END { if (!seen) print key "=" value }
+  ' "$INSTALL_STATE" > "$temp"
+  chown root:root "$temp"
+  chmod 0644 "$temp"
+  mv -f -- "$temp" "$INSTALL_STATE"
+}
+
+update_kernel_module() {
+  local current_kernel drm_prefix module_file formula_kernel formula_version formula_commit
+  local module_version module_vermagic module_params module_srcversion
+  local managed token loaded_token key_dir private_key certificate key_fp cert_fp
+  local kernel_build sign_file config_file sign_hash configured_hash temp signed_sha cert_sha
+  local destination_dir selinux_rule module_context rc=0
+
+  current_kernel="$(uname -r)"
+  [[ -n "$current_kernel" ]] || fail "could not determine the running kernel"
+  app_prefix_real="$(readlink -f "$APP_PREFIX" 2>/dev/null || true)"
+  [[ -n "$app_prefix_real" && "$app_prefix_real" == */Cellar/vibepollo-app/* ]] ||
+    fail "could not resolve the installed Homebrew Vibepollo app keg"
+  brew_prefix="${app_prefix_real%%/Cellar/*}"
+  drm_prefix="$(readlink -f "$brew_prefix/opt/vibepollo-drm" 2>/dev/null || true)"
+  [[ -n "$drm_prefix" && "$drm_prefix" == "$brew_prefix"/Cellar/vibepollo-drm/* && -d "$drm_prefix" && ! -L "$drm_prefix" ]] ||
+    fail "vibepollo-drm Formula is not installed or its opt link is unsafe"
+  formula_kernel="$(cat "$drm_prefix/libexec/kernel-release" 2>/dev/null || true)"
+  formula_version="$(cat "$drm_prefix/libexec/module-version" 2>/dev/null || true)"
+  formula_commit="$(cat "$drm_prefix/libexec/libvirtualdisplay-commit" 2>/dev/null || true)"
+  module_file="$drm_prefix/libexec/vibeshine_drm.ko"
+  [[ "$formula_kernel" == "$current_kernel" ]] || fail "Formula was built for an unexpected kernel"
+  [[ "$formula_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{12}$ ]] || fail "invalid module version metadata"
+  [[ "$formula_commit" =~ ^[0-9a-f]{40}$ ]] || fail "invalid source commit metadata"
+  [[ -f "$module_file" && ! -L "$module_file" ]] || fail "rebuilt Formula module is missing"
+
+  module_version="$(modinfo -F version "$module_file")"
+  module_vermagic="$(modinfo -F vermagic "$module_file" | awk '{print $1}')"
+  module_params="$(modinfo -F parm "$module_file")"
+  module_srcversion="$(modinfo -F srcversion "$module_file" 2>/dev/null || true)"
+  [[ "$module_version" == "$formula_version" && "$module_vermagic" == "$current_kernel" ]] || fail "rebuilt module metadata does not match the running kernel"
+  [[ "$module_params" == *"vibeshine_drmctl_token:"* ]] || fail "rebuilt module is missing the controller load-identity parameter"
+
+  if unit_is_active "$POOL_UNIT"; then bounded_systemctl 45 "stopping the virtual-display pool" stop "$POOL_UNIT"; fi
+  if unit_is_active "$CONTROL_SOCKET"; then bounded_systemctl 20 "stopping the virtual-display control socket" stop "$CONTROL_SOCKET"; fi
+  if unit_is_active "$POOL_UNIT" || unit_is_active "$CONTROL_SOCKET"; then fail "the Vibeshine service stack did not stop completely"; fi
+
+  if [[ -d "/sys/module/$MODULE_NAME" ]]; then
+    managed="$(state_value "$INSTALL_STATE" managed_load)"
+    token="$(state_value "$INSTALL_STATE" load_token)"
+    loaded_token="$(cat "/sys/module/$MODULE_NAME/parameters/vibeshine_drmctl_token" 2>/dev/null || true)"
+    [[ "$managed" == 1 && "$token" =~ ^[0-9a-f]{64}$ && "$loaded_token" == "$token" ]] || fail "the loaded DRM module is not verified as Cask-managed; refusing to replace it"
+    timeout --foreground --kill-after=5s 15s "$DRMCTL" unload || rc=$?
+    (( rc == 0 )) || fail "the DRM module is still in use; close virtual displays and retry"
+  fi
+  [[ ! -d "/sys/module/$MODULE_NAME" ]] || fail "vibeshine_drm remains loaded; refusing to replace a live module"
+
+  key_dir="$DRM_ROOT/keys"
+  private_key="$key_dir/mok.key"
+  certificate="$key_dir/MOK.der"
+  require_root_directory "$key_dir"
+  [[ "$(stat -c '%a' "$key_dir")" == 700 ]] || fail "signing-key directory must be mode 0700"
+  require_root_file "$private_key"
+  require_root_file "$certificate"
+  [[ "$(stat -c '%a' "$private_key")" == 600 || "$(stat -c '%a' "$private_key")" == 400 ]] || fail "private signing key must be mode 0600 or 0400"
+  key_fp="$(openssl pkey -passin pass: -in "$private_key" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" || fail "could not read unencrypted private signing key"
+  cert_fp="$(openssl x509 -inform DER -in "$certificate" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" || fail "could not read signing certificate"
+  [[ "$key_fp" == "$cert_fp" ]] || fail "signing key and certificate do not match"
+
+  kernel_build="$(readlink -f "/lib/modules/$current_kernel/build" 2>/dev/null || true)"
+  [[ -n "$kernel_build" && -d "$kernel_build" ]] || fail "matching kernel build directory is unavailable"
+  sign_file="$kernel_build/scripts/sign-file"
+  [[ -x "$sign_file" ]] || fail "kernel scripts/sign-file is unavailable"
+  config_file="$kernel_build/.config"
+  [[ -f "$config_file" ]] || config_file="/boot/config-$current_kernel"
+  sign_hash=sha256
+  if [[ -f "$config_file" ]]; then
+    configured_hash="$(sed -n 's/^CONFIG_MODULE_SIG_HASH="\([A-Za-z0-9_-]*\)"$/\1/p' "$config_file" | head -n1)"
+    [[ -z "$configured_hash" ]] || sign_hash="$configured_hash"
+  fi
+  case "$sign_hash" in sha1|sha224|sha256|sha384|sha512) ;; *) fail "unsupported kernel module signing hash";; esac
+
+  temp="$(mktemp -d /var/tmp/vibepollo-drm-update.XXXXXX)"
+  cp -- "$module_file" "$temp/vibeshine_drm.ko"
+  "$sign_file" "$sign_hash" "$private_key" "$certificate" "$temp/vibeshine_drm.ko"
+  [[ -n "$(modinfo -F sig_id "$temp/vibeshine_drm.ko" 2>/dev/null || true)" ]] || fail "kernel module signature metadata is missing"
+  signed_sha="$(sha256sum "$temp/vibeshine_drm.ko" | awk '{print $1}')"
+  cert_sha="$(sha256sum "$certificate" | awk '{print $1}')"
+
+  destination_dir="$DRM_ROOT/modules/$current_kernel"
+  require_root_directory "$DRM_ROOT"
+  install -d -o root -g root -m 0755 "$destination_dir"
+  [[ ! -L "$destination_dir/vibeshine_drm.ko" && ! -L "$destination_dir/vibeshine_drm.ko.new" ]] || fail "unsafe module destination"
+  install -o root -g root -m 0644 "$temp/vibeshine_drm.ko" "$destination_dir/vibeshine_drm.ko.new"
+  mv -f -- "$destination_dir/vibeshine_drm.ko.new" "$destination_dir/vibeshine_drm.ko"
+  rm -rf -- "$temp"
+
+  if [[ -d /sys/fs/selinux && "$(cat /sys/fs/selinux/enforce 2>/dev/null || echo 0)" == 1 ]]; then
+    command -v semanage >/dev/null 2>&1 || fail "semanage is required by SELinux to label the module"
+    command -v restorecon >/dev/null 2>&1 || fail "restorecon is required by SELinux to label the module"
+    selinux_rule="$DRM_ROOT/modules/[^/]+/vibeshine_drm[.]ko"
+    if ! semanage fcontext -l -C | awk -v spec="$selinux_rule" '$1 == spec { found=1 } END { exit !found }'; then
+      semanage fcontext -a -f f -t modules_object_t "$selinux_rule" || fail "could not register the SELinux module file-context rule"
+      update_install_state selinux_module_fcontext_owned 1
+    fi
+    restorecon -F "$destination_dir/vibeshine_drm.ko" || fail "could not apply the SELinux module label"
+    module_context="$(stat -c '%C' "$destination_dir/vibeshine_drm.ko")"
+    [[ "$module_context" == *:modules_object_t:* ]] || fail "SELinux did not apply modules_object_t to the new module"
+  fi
+
+  command -v depmod >/dev/null 2>&1 && depmod -a "$current_kernel"
+  update_install_state kernel "$current_kernel"
+  update_install_state module_version "$formula_version"
+  update_install_state module_srcversion "$module_srcversion"
+  update_install_state libvirtualdisplay "$formula_commit"
+  update_install_state module_sha256 "$signed_sha"
+  update_install_state certificate_sha256 "$cert_sha"
+  update_install_state managed_load 0
+  update_install_state load_token ""
+  start_pool
+  log "installed the signed DRM module for the running kernel"
+}
+
 show_status() {
   printf 'Autostart: %s\n' "$([[ "$AUTOSTART_ENABLED" == 1 ]] && printf enabled || printf disabled)"
   if unit_is_active "$POOL_UNIT"; then
@@ -439,7 +565,11 @@ case "$action" in
     [[ "$#" -eq 1 ]] || fail "status does not accept additional arguments"
     show_status
     ;;
+  update-module)
+    [[ "$#" -eq 1 ]] || fail "update-module does not accept additional arguments"
+    update_kernel_module
+    ;;
   *)
-    fail "usage: pkexec $SELF {start|stop|stop-after-pid PID|enable-autostart|disable-autostart|remove-autostart|status}"
+    fail "usage: pkexec $SELF {start|stop|stop-after-pid PID|enable-autostart|disable-autostart|remove-autostart|status|update-module}"
     ;;
 esac

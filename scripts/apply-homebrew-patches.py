@@ -477,6 +477,11 @@ endif()""",
   static void dispatch_lifecycle_completion(std::function<void()> fn);
   static void update_lifecycle_tray_menu();
 
+  static std::atomic<bool> module_update_available {
+    std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED") != nullptr &&
+    std::string(std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED")) == "1"
+  };
+
   static void run_lifecycle_action(std::string action, bool update_autostart, bool desired_autostart) {
     if (!lifecycle_helper_available) {
       BOOST_LOG(warning) << "The Vibepollo Homebrew lifecycle integration or /usr/bin/pkexec is unavailable"sv;
@@ -526,6 +531,9 @@ endif()""",
           if (success && update_autostart) {
             lifecycle_autostart_enabled.store(desired_autostart);
           }
+          if (success && action == "update-module") {
+            module_update_available.store(false);
+          }
           lifecycle_action_pending.store(false);
           update_lifecycle_tray_menu();
           if (!success) {
@@ -564,6 +572,52 @@ endif()""",
     run_lifecycle_action("stop-after-pid", false, false);
   }
 
+  void tray_update_kernel_module_cb([[maybe_unused]] struct tray_menu *item) {
+    if (!module_update_available.load()) return;
+    bool expected = false;
+    if (!lifecycle_action_pending.compare_exchange_strong(expected, true)) return;
+    const char *script_env = std::getenv("VIBEPOLLO_MODULE_UPDATE_SCRIPT");
+    if (!script_env || script_env[0] != '/') {
+      lifecycle_action_pending.store(false);
+      BOOST_LOG(error) << "Kernel module updater path is unavailable"sv;
+      update_lifecycle_tray_menu();
+      return;
+    }
+    const std::string script(script_env);
+    update_lifecycle_tray_menu();
+    try {
+      std::thread([script]() {
+        char *argv[] = {const_cast<char *>(script.c_str()), nullptr};
+        pid_t child = -1;
+        const int spawn_error = ::posix_spawn(&child, script.c_str(), nullptr, nullptr, argv, environ);
+        int status = 0;
+        int wait_error = 0;
+        if (spawn_error == 0) {
+          pid_t waited;
+          do { waited = ::waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+          if (waited != child) wait_error = errno;
+        }
+        const bool success = spawn_error == 0 && wait_error == 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        dispatch_lifecycle_completion([success, spawn_error, wait_error]() {
+          if (success) module_update_available.store(false);
+          lifecycle_action_pending.store(false);
+          update_lifecycle_tray_menu();
+          if (success) {
+            BOOST_LOG(info) << "Kernel module update completed"sv;
+          } else {
+            BOOST_LOG(error) << "Kernel module update failed or was cancelled"sv;
+            if (spawn_error != 0) BOOST_LOG(error) << std::strerror(spawn_error);
+            else if (wait_error != 0) BOOST_LOG(error) << std::strerror(wait_error);
+          }
+        });
+      }).detach();
+    } catch (const std::system_error &exception) {
+      lifecycle_action_pending.store(false);
+      update_lifecycle_tray_menu();
+      BOOST_LOG(error) << "Could not start kernel module updater: "sv << exception.what();
+    }
+  }
+
   void tray_toggle_autostart_cb([[maybe_unused]] struct tray_menu *item) {
     const bool enable = !lifecycle_autostart_enabled.load();
     BOOST_LOG(info) << (enable ? "Enabling"sv : "Disabling"sv) << " Vibepollo system autostart";
@@ -590,6 +644,8 @@ endif()""",
     {.text = "Restart", .cb = tray_restart_cb},
     {.text = "Quit", .cb = tray_quit_cb},
     {.text = "-"},
+    {.text = "Update kernel module", .disabled = 1,
+     .cb = tray_update_kernel_module_cb},
     {.text = "Quit and stop services", .disabled = 0,
      .cb = tray_quit_and_stop_services_cb},
     {.text = "Start with system", .disabled = 0, .checked = 0, .checkbox = 1,
@@ -637,9 +693,10 @@ endif()""",
       return;
     }
     const bool disabled = !lifecycle_helper_available || lifecycle_action_pending.load();
-    tray.menu[7].disabled = disabled ? 1 : 0;
+    tray.menu[7].disabled = !module_update_available.load() || lifecycle_action_pending.load() ? 1 : 0;
     tray.menu[8].disabled = disabled ? 1 : 0;
-    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
+    tray.menu[9].disabled = disabled ? 1 : 0;
+    tray.menu[9].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
     if (tray_initialized.load()) {
       tray_update(&tray);
     }
@@ -654,9 +711,10 @@ endif()""",
         "    int attempt = 0;\n",
         """#ifdef __linux__
     // Apply runtime state after the static menu table has been initialized.
-    tray.menu[7].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[7].disabled = module_update_available.load() ? 0 : 1;
     tray.menu[8].disabled = lifecycle_helper_available ? 0 : 1;
-    tray.menu[8].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
+    tray.menu[9].disabled = lifecycle_helper_available ? 0 : 1;
+    tray.menu[9].checked = lifecycle_autostart_enabled.load() ? 1 : 0;
 #endif
 
 """,
