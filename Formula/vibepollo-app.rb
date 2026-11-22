@@ -313,8 +313,9 @@ class VibepolloApp < Formula
     <<~EOS
       This formula installs the user-space application and its assets only.
       It does not install machine-wide services, privileged helpers, udev rules,
-      or kernel modules. Managed virtual displays also require the separate
-      driver and machine-integration packages. This bottle was compiled with
+      or kernel modules. Physical KMS capture and managed virtual displays
+      require the separate Cask integration helper and host libdrm/libcap
+      runtime libraries. This bottle was compiled with
       CUDA Toolkit 12.9.1, but the Toolkit is not an installation dependency;
       a compatible NVIDIA driver is still required for NVIDIA acceleration.
       Source builds use the pinned NVIDIA CUDA 12.9.1 compiler/runtime component archives. The C++ AppIndicator tray
