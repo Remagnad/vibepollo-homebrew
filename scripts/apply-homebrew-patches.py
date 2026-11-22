@@ -477,6 +477,11 @@ endif()""",
   static void dispatch_lifecycle_completion(std::function<void()> fn);
   static void update_lifecycle_tray_menu();
 
+  static std::atomic<bool> module_update_available {
+    std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED") != nullptr &&
+    std::string(std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED")) == "1"
+  };
+
   static void run_lifecycle_action(std::string action, bool update_autostart, bool desired_autostart) {
     if (!lifecycle_helper_available) {
       BOOST_LOG(warning) << "The Vibepollo Homebrew lifecycle integration or /usr/bin/pkexec is unavailable"sv;
@@ -566,11 +571,6 @@ endif()""",
     proc::proc.terminate();
     run_lifecycle_action("stop-after-pid", false, false);
   }
-
-  static std::atomic<bool> module_update_available {
-    std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED") != nullptr &&
-    std::string(std::getenv("VIBEPOLLO_MODULE_UPDATE_REQUIRED")) == "1"
-  };
 
   void tray_update_kernel_module_cb([[maybe_unused]] struct tray_menu *item) {
     if (!module_update_available.load()) return;
