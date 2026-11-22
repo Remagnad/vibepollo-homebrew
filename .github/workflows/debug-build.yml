@@ -35,9 +35,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Share the cache-writer lock with the release workflow.
-  group: vibepollo-upstream-release
-  cancel-in-progress: false
+  # PR builds only read the shared dependency cache and save a unique Debug
+  # compiler cache. Keep them independent from the release cache-writer lock.
+  # Manual/release builds retain the shared lock because they publish caches.
+  group: ${{ github.event_name == 'pull_request' && format('vibepollo-debug-pr-{0}', github.event.pull_request.number) || 'vibepollo-upstream-release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -531,7 +533,8 @@ jobs:
 
       - name: Save reusable Homebrew dependencies
         id: deps-cache-save
-        if: always() && steps.brew-paths.outcome == 'success'
+        # PR validation is read-only for the shared Homebrew dependency cache.
+        if: always() && steps.brew-paths.outcome == 'success' && github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -555,7 +558,7 @@ jobs:
           key: vibepollo-debug-ccache-ubuntu-24.04-x86_64-gcc14-${{ github.run_id }}
 
       - name: Prune superseded Homebrew and Debug compiler caches
-        if: always() && steps.deps-cache-save.outcome == 'success' && steps.debug-ccache-save.outcome == 'success'
+        if: always() && steps.deps-cache-save.outcome == 'success' && steps.debug-ccache-save.outcome == 'success' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           KEEP_DEPS_KEY: vibepollo-homebrew-deps-ubuntu-24.04-x86_64-v4-${{ steps.deps-cache.outputs.week }}
