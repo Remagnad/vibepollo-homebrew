@@ -291,7 +291,7 @@ checks = [
      'if (!*card_is_vibeshine) return EOPNOTSUPP;' in kms_patch_text),
     ("KMS helper build is restricted to system libdrm/libcap/libc",
      'libdrm.so.2' in kms_builder_text and 'libcap.so.2' in kms_builder_text and
-     'libc.so.6' in kms_builder_text and 'RPATH' in kms_builder_text),
+     'libc.so.6' in kms_builder_text and 'pkg-config --cflags libdrm' in kms_builder_text and 'RPATH' in kms_builder_text),
     ("debug build fetches the Linux libvirtualdisplay gitlink before CMake",
      "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
      'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
