@@ -92,7 +92,7 @@ unit_is_active() {
 
 [[ "$EUID" -eq 0 ]] || fail "Homebrew must run this uninstaller with sudo: true"
 log "starting privileged uninstall"
-for command_name in stat awk sha256sum timeout getcap; do
+for command_name in stat awk sha256sum timeout; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 if [[ ! -e "$DRM_ROOT" && ! -L "$DRM_ROOT" ]]; then
@@ -265,6 +265,8 @@ for directory in bin state; do
           [[ "$actual_helper_sha" == "$expected_helper_sha" ]] || fail "$helper_name was modified outside this Cask; leaving it untouched"
         fi
         if [[ "$helper_name" == "vibeshine-kms-capture" ]]; then
+          command -v getcap >/dev/null 2>&1 ||
+            fail "getcap is required to verify the Cask-owned KMS helper before removal"
           expected_caps="$helper cap_sys_admin=p"
           actual_caps="$(getcap "$helper")"
           [[ "$actual_caps" == "$expected_caps" ]] ||
