@@ -19,6 +19,7 @@ on:
       - "scripts/render-formula.py"
       - "scripts/install-cuda-components.sh"
       - "scripts/vibepollo-launcher.sh"
+      - "scripts/vibepollo-module-update.sh"
       - "scripts/prune-actions-caches.sh"
       - "Formula/**"
 

@@ -32,6 +32,112 @@ export XDG_DATA_DIRS
 VIBEPOLLO_ICON_THEME_PATH="$formula_prefix/share/icons"
 export VIBEPOLLO_ICON_THEME_PATH
 
+module_update_required=0
+module_update_reason=""
+module_update_script="$formula_prefix/libexec/vibepollo-module-update"
+current_kernel="$(uname -r 2>/dev/null || true)"
+state_file="/var/lib/vibepollo/drm/state/vibeshine-drm-install"
+lifecycle_state="/var/lib/vibepollo/drm/state/vibepollo-lifecycle"
+homebrew_prefix="${HOMEBREW_PREFIX:-}"
+case "$formula_prefix" in
+  */Cellar/*)
+    derived_prefix="${formula_prefix%%/Cellar/*}"
+    [ -n "$homebrew_prefix" ] || homebrew_prefix="$derived_prefix"
+    ;;
+esac
+
+# Application-only installs do not need the privileged kernel module.
+# Once the Cask receipt exists, verify the exact running-kernel module.
+if [ "${1:-}" != "--version" ] && [ "${1:-}" != "--help" ] &&
+   { [ -e "$state_file" ] || [ -L "$state_file" ] || [ -e "$lifecycle_state" ] || [ -L "$lifecycle_state" ]; }; then
+  module_update_required=1
+  module_update_reason="The installed Vibeshine module state is missing or unsafe."
+
+  if [ -f "$state_file" ] && [ ! -L "$state_file" ] &&
+     [ "$(stat -c '%u' "$state_file" 2>/dev/null || echo invalid)" = 0 ]; then
+    state_mode="$(stat -c '%a' "$state_file" 2>/dev/null || echo 777)"
+    if [ "$((0$state_mode & 0022))" -eq 0 ]; then
+      state_value() {
+        awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$state_file"
+      }
+
+      installed_kernel="$(state_value kernel)"
+      installed_version="$(state_value module_version)"
+      installed_commit="$(state_value libvirtualdisplay)"
+      installed_sha="$(state_value module_sha256)"
+      module_file="/var/lib/vibepollo/drm/modules/$current_kernel/vibeshine_drm.ko"
+      drm_formula_prefix=""
+      if [ -n "$homebrew_prefix" ] && [ -d "$homebrew_prefix/opt/vibepollo-drm" ]; then
+        drm_formula_prefix="$(readlink -f -- "$homebrew_prefix/opt/vibepollo-drm" 2>/dev/null || true)"
+      fi
+
+      formula_kernel=""
+      formula_version=""
+      formula_commit=""
+      if [ -n "$drm_formula_prefix" ] &&
+         [ -f "$drm_formula_prefix/libexec/kernel-release" ] &&
+         [ -f "$drm_formula_prefix/libexec/module-version" ] &&
+         [ -f "$drm_formula_prefix/libexec/libvirtualdisplay-commit" ]; then
+        formula_kernel="$(tr -d '[:space:]' < "$drm_formula_prefix/libexec/kernel-release")"
+        formula_version="$(tr -d '[:space:]' < "$drm_formula_prefix/libexec/module-version")"
+        formula_commit="$(tr -d '[:space:]' < "$drm_formula_prefix/libexec/libvirtualdisplay-commit")"
+      fi
+
+      module_sha=""
+      if [ -f "$module_file" ] && [ ! -L "$module_file" ]; then
+        module_sha="$(sha256sum "$module_file" 2>/dev/null | awk '{print $1}')"
+      fi
+      if [ -n "$current_kernel" ] &&
+         [ "$installed_kernel" = "$current_kernel" ] &&
+         [ "$formula_kernel" = "$current_kernel" ] &&
+         [ -n "$formula_version" ] &&
+         [ "$installed_version" = "$formula_version" ] &&
+         [ "$installed_commit" = "$formula_commit" ] &&
+         [ -f "$module_file" ] && [ ! -L "$module_file" ] &&
+         [ "$(stat -c '%u' "$module_file" 2>/dev/null || echo invalid)" = 0 ] &&
+         [ -n "$installed_sha" ] && [ "$module_sha" = "$installed_sha" ]; then
+        module_update_required=0
+        module_update_reason=""
+      else
+        if [ -z "$current_kernel" ]; then
+          module_update_reason="The running kernel could not be determined."
+        elif [ "$installed_kernel" != "$current_kernel" ]; then
+          module_update_reason="The installed module targets kernel ${installed_kernel:-unknown}; the running kernel is $current_kernel."
+        elif [ "$formula_kernel" != "$current_kernel" ]; then
+          module_update_reason="The Homebrew DRM Formula has not been built for kernel $current_kernel."
+        elif [ "$installed_version" != "$formula_version" ] ||
+             [ "$installed_commit" != "$formula_commit" ]; then
+          module_update_reason="A newer Vibeshine DRM module build is available for kernel $current_kernel."
+        elif [ ! -f "$module_file" ] || [ -L "$module_file" ]; then
+          module_update_reason="The signed module for kernel $current_kernel is missing."
+        else
+          module_update_reason="The installed kernel module does not match its recorded integrity checksum."
+        fi
+      fi
+    fi
+  fi
+fi
+
+VIBEPOLLO_MODULE_UPDATE_REQUIRED="$module_update_required"
+VIBEPOLLO_MODULE_UPDATE_SCRIPT="$module_update_script"
+export VIBEPOLLO_MODULE_UPDATE_REQUIRED VIBEPOLLO_MODULE_UPDATE_SCRIPT
+
+if [ "$module_update_required" -eq 1 ]; then
+  echo "vibepollo: $module_update_reason" >&2
+  notify_bin=""
+  if [ -n "$homebrew_prefix" ] && [ -x "$homebrew_prefix/bin/notify-send" ]; then
+    notify_bin="$homebrew_prefix/bin/notify-send"
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify_bin="$(command -v notify-send)"
+  fi
+  if [ -n "$notify_bin" ]; then
+    "$notify_bin" --app-name="Vibepollo" --urgency=normal --expire-time=15000 \
+      "Vibepollo kernel module update available" \
+      "$module_update_reason Open the tray menu and choose 'Update kernel module'." \
+      >/dev/null 2>&1 || true
+  fi
+fi
+
 # Homebrew Mesa is the normal GL implementation for AMD/Intel. When the
 # proprietary NVIDIA EGL vendor is installed, use the host's matching GLVND
 # client libraries so GLVND can dispatch to NVIDIA (and other host vendors).
@@ -162,6 +268,7 @@ if [ "${1:-}" != "--version" ] && [ "${1:-}" != "--help" ] &&
    [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/bin/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
    [ "$(stat -c '%u' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo invalid)" = 0 ] &&
    [ "$((0$(stat -c '%a' /var/lib/vibepollo/drm/state/vibepollo-lifecycle 2>/dev/null || echo 0) & 0022))" -eq 0 ] &&
+   [ "$module_update_required" -eq 0 ] &&
    ! systemctl is-active --quiet vibeshine-vkms.service; then
   if [ ! -x /usr/bin/pkexec ]; then
     echo "vibepollo: pkexec is required to start the managed virtual-display services" >&2
@@ -171,6 +278,10 @@ if [ "${1:-}" != "--version" ] && [ "${1:-}" != "--help" ] &&
     echo "vibepollo: could not start the managed virtual-display services; launch cancelled" >&2
     exit 1
   }
+fi
+
+if [ "$module_update_required" -eq 1 ]; then
+  echo "vibepollo: managed virtual-display services were not started because the kernel module needs updating" >&2
 fi
 
 exec "$formula_prefix/libexec/vibepollo-bin" "$@"
