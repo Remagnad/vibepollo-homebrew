@@ -296,6 +296,9 @@ checks = [
      "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
      'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
      'git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux' in prepare_debug_source_text),
+    ("debug build also applies the restricted physical KMS helper patch",
+     'apply-kms-homebrew-patch.py" "$source_dir"' in prepare_debug_source_text and
+     '"kms_patch": "scripts/apply-kms-homebrew-patch.py"' in prepare_debug_source_text),
     ("Homebrew patches the Linux-selected libvirtualdisplay source",
      'third-party/libvirtualdisplay-linux' in homebrew_patches_text and
      'libvirtualdisplay_root / "src/driver/CMakeLists.txt"' in homebrew_patches_text),
