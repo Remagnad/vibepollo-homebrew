@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+fail() { printf 'vibepollo GPU bridge uninstaller: error: %s\n' "$*" >&2; exit 1; }
+log() { printf 'vibepollo GPU bridge uninstaller: %s\n' "$*" >&2; }
+state_value() {
+  local key="$1"
+  [[ -f "$RECEIPT" && ! -L "$RECEIPT" ]] || return 0
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$RECEIPT"
+}
+require_root_file() {
+  [[ -f "$1" && ! -L "$1" ]] || fail "refusing unsafe GPU bridge file: $1"
+  [[ "$(stat -c '%u' "$1")" == 0 ]] || fail "$1 must be root-owned"
+}
+require_root_dir() {
+  [[ -d "$1" && ! -L "$1" ]] || fail "refusing unsafe GPU bridge directory: $1"
+  [[ "$(stat -c '%u' "$1")" == 0 ]] || fail "$1 must be root-owned"
+  local mode
+  mode="$(stat -c '%a' "$1")"
+  (( (8#$mode & 0022) == 0 )) || fail "$1 is writable by group or others"
+}
+
+[[ "$EUID" -eq 0 ]] || fail "Cask must run this helper as root"
+[[ "$#" -eq 1 ]] || fail "expected the DRM state directory"
+STATE_DIR="$1"
+RECEIPT="$STATE_DIR/vibepollo-gpu-bridge"
+if [[ ! -e "$RECEIPT" && ! -L "$RECEIPT" ]]; then
+  log "no GPU bridge receipt exists; nothing to remove"
+  exit 0
+fi
+require_root_dir "$STATE_DIR"
+require_root_file "$RECEIPT"
+receipt_mode="$(stat -c '%a' "$RECEIPT")"
+(( (8#$receipt_mode & 0022) == 0 )) || fail "GPU bridge receipt is writable by group or others"
+
+INSTALL_MODE="$(state_value install_mode)"
+LIBRARY_PATH="$(state_value library_path)"
+LIBRARY_SHA="$(state_value library_sha256)"
+KWIN_SHA="$(state_value kwin_dropin_sha256)"
+LOGIN_SHA="$(state_value login_dropin_sha256)"
+SYSEXT_ROOT="$(state_value sysext_root)"
+SYSEXT_ENABLED_BY_CASK="$(state_value sysext_enabled_by_cask)"
+SYSEXT_ENABLE_LINK="$(state_value sysext_enable_link)"
+SYSEXT_ENABLE_TARGET="$(state_value sysext_enable_target)"
+[[ "$INSTALL_MODE" == mutable || "$INSTALL_MODE" == sysext ]] || fail "unknown GPU bridge installation mode"
+[[ "$LIBRARY_PATH" == /* && "$LIBRARY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "GPU bridge receipt is incomplete"
+[[ "$KWIN_SHA" =~ ^[0-9a-f]{64}$ && "$LOGIN_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "KWin drop-in ownership receipt is incomplete"
+[[ "$SYSEXT_ENABLED_BY_CASK" == 0 || "$SYSEXT_ENABLED_BY_CASK" == 1 ]] || fail "invalid sysext service ownership receipt"
+
+KWINDROPIN="/etc/systemd/user/plasma-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+LOGINDROPIN="/etc/systemd/user/plasma-login-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+for spec in "$KWINDROPIN:$KWIN_SHA" "$LOGINDROPIN:$LOGIN_SHA"; do
+  IFS=: read -r path expected <<< "$spec"
+  if [[ -e "$path" || -L "$path" ]]; then
+    require_root_file "$path"
+    [[ "$(sha256sum "$path" | awk '{print $1}')" == "$expected" ]] ||
+      fail "KWin drop-in was modified outside this Cask; preserving the bridge and configuration"
+  fi
+done
+
+if [[ -e "$LIBRARY_PATH" || -L "$LIBRARY_PATH" ]]; then
+  require_root_file "$LIBRARY_PATH"
+  [[ "$(sha256sum "$LIBRARY_PATH" | awk '{print $1}')" == "$LIBRARY_SHA" ]] ||
+    fail "GPU bridge library was modified outside this Cask; preserving it"
+  mode="$(stat -c '%a' "$LIBRARY_PATH")"
+  (( (8#$mode & 04000) != 0 )) || fail "GPU bridge lost its secure-loader set-user-ID trust marker"
+fi
+
+if [[ "$INSTALL_MODE" == sysext ]]; then
+  [[ "$SYSEXT_ROOT" == /var/lib/extensions/vibepollo-gpu-bridge ]] || fail "unexpected system-extension path in receipt"
+  require_root_dir /var/lib/extensions
+  require_root_dir "$SYSEXT_ROOT"
+  extension_release="$SYSEXT_ROOT/usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge"
+  require_root_file "$extension_release"
+  [[ "$(cat "$extension_release")" == $'ID=_any\nSYSEXT_SCOPE=system' ]] ||
+    fail "system-extension release metadata changed outside this Cask"
+  [[ -n "$LIBRARY_PATH" && "$LIBRARY_PATH" == "$SYSEXT_ROOT/"* ]] || fail "bridge library path is outside the recorded extension"
+  command -v systemd-sysext >/dev/null 2>&1 || fail "systemd-sysext is required to deactivate the installed GPU bridge"
+  backup="$(mktemp -d /var/tmp/vibepollo-gpu-bridge-remove.XXXXXX)"
+  cp -a -- "$SYSEXT_ROOT" "$backup/extension"
+  rm -rf -- "$SYSEXT_ROOT"
+  if ! systemd-sysext refresh; then
+    cp -a -- "$backup/extension" "$SYSEXT_ROOT"
+    systemd-sysext refresh >/dev/null 2>&1 || true
+    rm -rf -- "$backup"
+    fail "systemd-sysext could not deactivate the GPU bridge; the extension was restored"
+  fi
+  rm -rf -- "$backup"
+else
+  rm -f -- "$LIBRARY_PATH"
+fi
+
+rm -f -- "$KWINDROPIN" "$LOGINDROPIN"
+rmdir /etc/systemd/user/plasma-kwin_wayland.service.d 2>/dev/null || true
+rmdir /etc/systemd/user/plasma-login-kwin_wayland.service.d 2>/dev/null || true
+
+if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 && -n "$SYSEXT_ENABLE_LINK" ]]; then
+  [[ "$SYSEXT_ENABLE_LINK" == /etc/systemd/system/* && -L "$SYSEXT_ENABLE_LINK" ]] ||
+    fail "Cask-owned systemd-sysext enablement link is missing or changed"
+  [[ "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ]] ||
+    fail "systemd-sysext enablement link was changed outside this Cask"
+  other_extensions=0
+  for directory in /var/lib/extensions /etc/extensions /run/extensions; do
+    [[ -d "$directory" ]] || continue
+    for entry in "$directory"/*; do
+      [[ -e "$entry" || -L "$entry" ]] || continue
+      [[ "$entry" == "$SYSEXT_ROOT" ]] && continue
+      other_extensions=1
+    done
+  done
+  if [[ "$other_extensions" == 0 ]]; then
+    rm -f -- "$SYSEXT_ENABLE_LINK"
+    systemctl daemon-reload
+  else
+    log "leaving systemd-sysext enabled because other system extensions are present"
+  fi
+fi
+
+rm -f -- "$RECEIPT"
+log "removed the verified KWin GPU bridge and its user-service drop-ins"
+log "the current KWin process may keep the already-loaded library mapped until logout"
