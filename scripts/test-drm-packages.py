@@ -305,6 +305,8 @@ checks = [
     ("GPU bridge Cask installer is NVIDIA-only and resolves host runtime libraries",
      '[[ "$vendor" == 0x10de ]]' in gpu_bridge_installer_text and
      'libdrm.so.2' in gpu_bridge_installer_text and 'libgbm.so.1' in gpu_bridge_installer_text and
+     "libstdc++.so.6" in app_formula_text and
+     'chcon --reference="$GBM_REAL"' in gpu_bridge_installer_text and
      '/home/linuxbrew/' in gpu_bridge_installer_text and
      'install -o root -g root -m 4755 "$BRIDGE_SOURCE"' in gpu_bridge_installer_text),
     ("GPU bridge uses trusted KWin user drop-ins and systemd-sysext for immutable /usr",
