@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev pkgconf ccache
+          sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev libgbm-dev pkgconf ccache
 
       - name: Restore Debug compiler cache
         id: debug-ccache-restore
@@ -387,6 +387,7 @@ jobs:
             -DCUDAToolkit_ROOT:PATH="$cuda_prefix" \
             -DCMAKE_CUDA_HOST_COMPILER="$gcc_bin/g++-14" \
             -DSUNSHINE_ENABLE_DRM=ON \
+            -DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON \
             -DSUNSHINE_ENABLE_TRAY=ON \
             -DSUNSHINE_ENABLE_PYROWAVE=ON \
             -DSUNSHINE_ENABLE_VAAPI=ON \

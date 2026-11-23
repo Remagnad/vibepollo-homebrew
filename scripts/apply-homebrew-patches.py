@@ -91,7 +91,7 @@ else()
     set(BUILD_VIBESHINE_KWIN_GPU_BRIDGE ON CACHE BOOL
         "Build the Vibepollo KWin GPU-association bridge" FORCE)
 endif()""",
-        """if(SUNSHINE_BUILD_STEAMOS OR SUNSHINE_BUILD_HOMEBREW)
+        """if(SUNSHINE_BUILD_STEAMOS)
     set(BUILD_VIBESHINE_KWIN_GPU_BRIDGE OFF CACHE BOOL
             "Build the Vibepollo KWin GPU-association bridge" FORCE)
 else()
@@ -104,7 +104,7 @@ endif()""",
         root / "cmake/dependencies/common.cmake",
         """set(BUILD_VIBESHINE_KWIN_GPU_BRIDGE ON CACHE BOOL
         "Build the bundled libvirtualdisplay KWin GPU-association bridge" FORCE)""",
-        """if(SUNSHINE_BUILD_STEAMOS OR SUNSHINE_BUILD_HOMEBREW)
+        """if(SUNSHINE_BUILD_STEAMOS)
     set(BUILD_VIBESHINE_KWIN_GPU_BRIDGE OFF CACHE BOOL
             "Build the bundled libvirtualdisplay KWin GPU-association bridge" FORCE)
 else()

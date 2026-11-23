@@ -105,6 +105,7 @@ echo "::endgroup::"
 echo "::group::Apply Homebrew Linux port patch"
 python3 "$GITHUB_WORKSPACE/scripts/apply-homebrew-patches.py" "$source_dir"
 python3 "$GITHUB_WORKSPACE/scripts/apply-kms-homebrew-patch.py" "$source_dir"
+python3 "$GITHUB_WORKSPACE/scripts/apply-gpu-bridge-homebrew-patch.py" "$source_dir"
 cat > "$source_dir/HOMEBREW-UPSTREAM.json" <<EOF
 {
   "upstream": "https://github.com/Nonary/Vibepollo",

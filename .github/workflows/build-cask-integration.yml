@@ -132,7 +132,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev pkgconf
+          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev libgbm-dev pkgconf
 
       - name: Build only the Cask integration archive
         env:
