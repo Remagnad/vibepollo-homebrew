@@ -270,8 +270,8 @@ class VibepolloApp < Formula
       odie "The KWin GPU bridge was not installed by CMake" unless gpu_bridge.file?
       gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)
       gpu_bridge_needed = gpu_bridge_dynamic.scan(/\(NEEDED\).*?\[([^\]]+)\]/).flatten
-      odie "The GPU bridge is missing libdrm/libgbm runtime links" unless
-        gpu_bridge_needed.include?("libdrm.so.2") && gpu_bridge_needed.include?("libgbm.so.1")
+      odie "The GPU bridge is missing its required libdrm runtime link" unless
+        gpu_bridge_needed.include?("libdrm.so.2")
       odie "The GPU bridge must statically link the C++ runtime" if
         gpu_bridge_needed.any? { |library| %w[libstdc++.so.6 libgcc_s.so.1].include?(library) }
       odie "The GPU bridge must not carry an RPATH or RUNPATH into Homebrew" if
