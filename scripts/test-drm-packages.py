@@ -289,6 +289,7 @@ checks = [
      '"${CMAKE_INSTALL_LIBDIR}" CACHE PATH' in gpu_bridge_patch_text and
      '${CMAKE_INSTALL_LIBDIR}/systemd/user' in gpu_bridge_patch_text and
      'SKIP_BUILD_RPATH TRUE' in gpu_bridge_patch_text and
+     '-static-libstdc++ -static-libgcc' in gpu_bridge_patch_text and
      'PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ' in gpu_bridge_patch_text),
     ("Homebrew enables the GPU bridge outside SteamOS",
      'if(SUNSHINE_BUILD_STEAMOS)' in homebrew_patches_text and
@@ -302,7 +303,7 @@ checks = [
      "libgbm-dev" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
      "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
     ("GPU bridge Cask installer is NVIDIA-only and resolves host runtime libraries",
-     'vendor == 0x10de' in gpu_bridge_installer_text and
+     '[[ "$vendor" == 0x10de ]]' in gpu_bridge_installer_text and
      'libdrm.so.2' in gpu_bridge_installer_text and 'libgbm.so.1' in gpu_bridge_installer_text and
      '/home/linuxbrew/' in gpu_bridge_installer_text and
      'install -o root -g root -m 4755 "$BRIDGE_SOURCE"' in gpu_bridge_installer_text),
