@@ -56,11 +56,11 @@ def main() -> None:
         # Homebrew's GCC toolchain can be newer than the host system runtime.
         # Keep libstdc++/libgcc inside the bridge so secure KWin loading never
         # resolves a Homebrew Cellar runtime or an incompatible host ABI.
-        target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc)
+        target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL)
     endif()"""
     link_replacement_full = link_replacement + "\n" + static_runtime_block
     driver_text = driver_cmake.read_text(encoding="utf-8")
-    if "target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc)" not in driver_text:
+    if "target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL)" not in driver_text:
         replace_once(driver_cmake, link_replacement, link_replacement_full)
 
     install_block = """    install(TARGETS vibeshine_kwin_gpu
@@ -86,7 +86,7 @@ def main() -> None:
         'set(VIBESHINE_KWIN_GPU_LIBRARY_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}" CACHE PATH',
         'set(VIBESHINE_KWIN_GPU_SYSTEMD_USER_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/systemd/user" CACHE PATH',
         'SKIP_BUILD_RPATH TRUE',
-        'target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc)',
+        'target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL)',
         'PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ',
     )
     missing = [token for token in required if token not in patched]
