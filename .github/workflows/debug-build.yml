@@ -154,7 +154,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev libgbm-dev pkgconf ccache
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev libgbm-dev pkgconf ccache; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "Unable to install the Debug build dependencies after refreshing the Ubuntu package indexes three times." >&2
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Restore Debug compiler cache
         id: debug-ccache-restore
