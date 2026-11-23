@@ -320,7 +320,8 @@ checks = [
      'system extension contains files not owned by this Cask' in gpu_bridge_uninstaller_text),
     ("main Cask lifecycle invokes GPU bridge install and uninstall",
      'vibepollo-gpu-bridge-install' in install_text and
-     'vibepollo-gpu-bridge-uninstall' in uninstall_text and
+     'vibepollo-gpu-bridge-uninstall' in install_text and
+     'vibepollo-gpu-bridge-install' in install_text[install_text.find('for payload in'):install_text.find('done', install_text.find('for payload in'))] and
      uninstall_text.find('vibepollo-gpu-bridge-uninstall') > uninstall_text.find('fail "vibeshine_drm remains loaded')),
     ("Cask payload packages both GPU bridge lifecycle helpers",
      'vibepollo-gpu-bridge-install' in cask_packager_text and
