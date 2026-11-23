@@ -52,6 +52,8 @@ for command_name in stat sha256sum awk install mktemp readelf ldd realpath syste
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
+RECEIPT="$STATE_DIR/vibepollo-gpu-bridge"
+
 # The bridge is specifically for NVIDIA's KWin/GBM GPU-association path.
 # Do not globally change KWin's udmabuf behavior on AMD/Intel-only machines.
 NVIDIA_PRESENT=0
@@ -62,6 +64,12 @@ for vendor_file in /sys/bus/pci/devices/*/vendor; do
 done
 if [[ "$NVIDIA_PRESENT" != 1 ]]; then
   log "no NVIDIA PCI device detected; skipping the NVIDIA-specific KWin GPU bridge"
+  if [[ -e "$RECEIPT" || -L "$RECEIPT" ]]; then
+    GPU_BRIDGE_UNINSTALLER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/vibepollo-gpu-bridge-uninstall"
+    [[ -f "$GPU_BRIDGE_UNINSTALLER" && -x "$GPU_BRIDGE_UNINSTALLER" ]] ||
+      fail "an old GPU bridge is recorded but its Cask uninstaller is missing"
+    "$GPU_BRIDGE_UNINSTALLER" "$STATE_DIR"
+  fi
   exit 0
 fi
 
@@ -333,6 +341,7 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   command -v chcon >/dev/null 2>&1 || fail "chcon is required to label the KWin GPU bridge on this SELinux host"
   command -v restorecon >/dev/null 2>&1 || fail "restorecon is required to label the KWin user-service drop-ins on this SELinux host"
   if [[ "$INSTALL_MODE" == sysext ]]; then
+    restorecon -F /var/lib/extensions
     restorecon -RF "$SYSEXT_ROOT"
   fi
   chcon --reference="$GBM_REAL" "$LIBRARY_TARGET"
