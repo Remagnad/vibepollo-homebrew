@@ -76,10 +76,23 @@ if [[ "$INSTALL_MODE" == sysext ]]; then
     fail "system-extension release metadata changed outside this Cask"
   [[ -n "$LIBRARY_PATH" && "$LIBRARY_PATH" == "$SYSEXT_ROOT/"* ]] || fail "bridge library path is outside the recorded extension"
   command -v systemd-sysext >/dev/null 2>&1 || fail "systemd-sysext is required to deactivate the installed GPU bridge"
-  [[ -z "$SYSEXT_ENABLE_LINK" || ( "$SYSEXT_ENABLE_LINK" == /etc/systemd/system/* && -L "$SYSEXT_ENABLE_LINK" && "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ) ]] ||
-    fail "Cask-owned systemd-sysext enablement link is missing or changed"
+  command -v find >/dev/null 2>&1 || fail "find is required to verify the installed system extension"
+  if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 ]]; then
+    [[ -n "$SYSEXT_ENABLE_LINK" && "$SYSEXT_ENABLE_LINK" == /etc/systemd/system/* &&
+       -L "$SYSEXT_ENABLE_LINK" && "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ]] ||
+      fail "Cask-owned systemd-sysext enablement link is missing or changed"
+  fi
   mapfile -t extension_files < <(find "$SYSEXT_ROOT" -type f -printf '%P\n' | sort)
-  expected_extension_files=
+  [[ "${#extension_files[@]}" -eq 2 ]] ||
+    fail "system extension contains files not owned by this Cask; preserving it"
+  printf '%s\n' "${extension_files[@]}" | grep -Fxq 'usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge' ||
+    fail "system extension metadata is missing; preserving it"
+  extension_library_relative="$(printf '%s' "$LIBRARY_PATH" | sed "s#^$SYSEXT_ROOT/##")"
+  printf '%s\n' "${extension_files[@]}" | grep -Fxq "$extension_library_relative" ||
+    fail "system extension library path is not recorded; preserving it"
+  if find "$SYSEXT_ROOT" -type l -print -quit | grep -q .; then
+    fail "system extension contains a symbolic link not owned by this Cask; preserving it"
+  fi
   cp -a -- "$SYSEXT_ROOT" "$backup/extension"
   rm -rf -- "$SYSEXT_ROOT"
   if ! systemd-sysext refresh; then
