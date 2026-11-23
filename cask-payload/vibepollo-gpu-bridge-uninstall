@@ -98,49 +98,6 @@ if [[ "$INSTALL_MODE" == sysext ]]; then
   if find "$SYSEXT_ROOT" -type l -print -quit | grep -q .; then
     fail "system extension contains a symbolic link not owned by this Cask; preserving it"
   fi
-  cp -a -- "$SYSEXT_ROOT" "$backup/extension"
-  rm -rf -- "$SYSEXT_ROOT"
-  if ! systemd-sysext refresh; then
-    cp -a -- "$backup/extension" "$SYSEXT_ROOT"
-    systemd-sysext refresh >/dev/null 2>&1 || true
-    rm -rf -- "$backup"
-    fail "systemd-sysext could not deactivate the GPU bridge; the extension was restored"
-  fi
-  rm -rf -- "$backup"
-else
-  rm -f -- "$LIBRARY_PATH"
-fi
-
-rm -f -- "$KWINDROPIN" "$LOGINDROPIN"
-rmdir /etc/systemd/user/plasma-kwin_wayland.service.d 2>/dev/null || true
-rmdir /etc/systemd/user/plasma-login-kwin_wayland.service.d 2>/dev/null || true
-
-if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 && -n "$SYSEXT_ENABLE_LINK" ]]; then
-  other_extensions=0
-  for directory in /var/lib/extensions /etc/extensions /run/extensions; do
-    [[ -d "$directory" ]] || continue
-    for entry in "$directory"/*; do
-      [[ -e "$entry" || -L "$entry" ]] || continue
-      [[ "$entry" == "$SYSEXT_ROOT" ]] && continue
-      other_extensions=1
-    done
-  done
-  if [[ "$other_extensions" == 0 ]]; then
-    rm -f -- "$SYSEXT_ENABLE_LINK"
-    systemctl daemon-reload
-  else
-    log "leaving systemd-sysext enabled because other system extensions are present"
-  fi
-fi
-
-rm -f -- "$RECEIPT"
-log "removed the verified KWin GPU bridge and its user-service drop-ins"
-log "the current KWin process may keep the already-loaded library mapped until logout"
-usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge\n'$(printf '%s\n' "${LIBRARY_PATH#"$SYSEXT_ROOT/"}" | sed 's#^#/')
-  [[ "${#extension_files[@]}" -eq 2 ]] ||
-    fail "system extension contains files not owned by this Cask; preserving it"
-  find "$SYSEXT_ROOT" -type l -print -quit | grep -q . &&
-    fail "system extension contains an unowned symbolic link; preserving it"
   backup="$(mktemp -d /var/tmp/vibepollo-gpu-bridge-remove.XXXXXX)"
   cp -a -- "$SYSEXT_ROOT" "$backup/extension"
   rm -rf -- "$SYSEXT_ROOT"
@@ -160,10 +117,6 @@ rmdir /etc/systemd/user/plasma-kwin_wayland.service.d 2>/dev/null || true
 rmdir /etc/systemd/user/plasma-login-kwin_wayland.service.d 2>/dev/null || true
 
 if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 && -n "$SYSEXT_ENABLE_LINK" ]]; then
-  [[ "$SYSEXT_ENABLE_LINK" == /etc/systemd/system/* && -L "$SYSEXT_ENABLE_LINK" ]] ||
-    fail "Cask-owned systemd-sysext enablement link is missing or changed"
-  [[ "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ]] ||
-    fail "systemd-sysext enablement link was changed outside this Cask"
   other_extensions=0
   for directory in /var/lib/extensions /etc/extensions /run/extensions; do
     [[ -d "$directory" ]] || continue
