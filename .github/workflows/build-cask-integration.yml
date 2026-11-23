@@ -159,7 +159,8 @@ jobs:
           import pathlib, sys, tarfile
           expected = {
               "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
-              "vibeshine-kms-capture", "vibeshine-vkms", "vibeshine-vkms-quiesce",
+              "vibeshine-kms-capture", "vibepollo-gpu-bridge-install", "vibepollo-gpu-bridge-uninstall",
+              "vibeshine-vkms", "vibeshine-vkms-quiesce",
               "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
               "vibeshine-vkms-control@.service",
           }
