@@ -89,7 +89,7 @@ grep -Fxq 'libgbm.so.1' <<< "$NEEDED" || fail "the GPU bridge does not link libg
 LDD_OUTPUT="$(env -u LD_LIBRARY_PATH -u LD_PRELOAD ldd "$BRIDGE_SOURCE" 2>&1)" ||
   fail "could not resolve host runtime dependencies for the GPU bridge"
 if grep -q 'not found' <<< "$LDD_OUTPUT"; then
-  fail "the GPU bridge needs host libdrm, libgbm and compatible C++ runtime libraries; install the distro runtime packages and retry"
+  fail "the GPU bridge needs host libdrm and libgbm runtime libraries; install the distro runtime packages and retry"
 fi
 if grep -Fq '/home/linuxbrew/' <<< "$LDD_OUTPUT"; then
   fail "the GPU bridge resolves a dependency from Homebrew; refusing a secure KWin preload"
@@ -328,6 +328,17 @@ LOGIN_INSTALLED=1
 LIBRARY_SHA="$(sha256sum "$LIBRARY_TARGET" | awk '{print $1}')"
 KWIN_SHA="$(sha256sum "$KWINDROPIN_TARGET" | awk '{print $1}')"
 LOGIN_SHA="$(sha256sum "$LOGINDROPIN_TARGET" | awk '{print $1}')"
+
+# Preserve the host shared-library SELinux type when the bridge is copied into
+# /usr or exposed through a directory extension. The systemd drop-ins receive
+# the policy's normal systemd-unit file labels.
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+  command -v chcon >/dev/null 2>&1 || fail "chcon is required to label the KWin GPU bridge on this SELinux host"
+  command -v restorecon >/dev/null 2>&1 || fail "restorecon is required to label the KWin user-service drop-ins on this SELinux host"
+  chcon --reference="$GBM_REAL" "$LIBRARY_TARGET"
+  restorecon -F "$KWINDROPIN_TARGET" "$LOGINDROPIN_TARGET"
+fi
+
 RECEIPT_TMP="$TMP_DIR/vibepollo-gpu-bridge.receipt"
 printf 'format=1\ninstall_mode=%s\nlibrary_path=%s\nlibrary_sha256=%s\nkwin_dropin_sha256=%s\nlogin_dropin_sha256=%s\nsysext_root=%s\nsysext_enabled_by_cask=%s\nsysext_enable_link=%s\nsysext_enable_target=%s\n' \
   "$INSTALL_MODE" "$LIBRARY_TARGET" "$LIBRARY_SHA" "$KWIN_SHA" "$LOGIN_SHA" "$SYSEXT_ROOT" \
