@@ -46,6 +46,8 @@ def main() -> None:
         # The privileged Cask copy resolves against host libraries, never a keg.
         set_target_properties(vibeshine_kwin_gpu PROPERTIES
                 SKIP_BUILD_RPATH TRUE
+                SKIP_INSTALL_RPATH TRUE
+                BUILD_WITH_INSTALL_RPATH FALSE
                 BUILD_RPATH ""
                 INSTALL_RPATH ""
                 INSTALL_RPATH_USE_LINK_PATH FALSE)
@@ -86,6 +88,8 @@ def main() -> None:
         'set(VIBESHINE_KWIN_GPU_LIBRARY_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}" CACHE PATH',
         'set(VIBESHINE_KWIN_GPU_SYSTEMD_USER_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/systemd/user" CACHE PATH',
         'SKIP_BUILD_RPATH TRUE',
+        'SKIP_INSTALL_RPATH TRUE',
+        'BUILD_WITH_INSTALL_RPATH FALSE',
         'target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL)',
         'PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ',
     )
