@@ -58,7 +58,7 @@ def main() -> None:
         # resolves a Homebrew Cellar runtime or an incompatible host ABI.
         target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc)
     endif()"""
-    link_replacement_full = link_replacement + "\\n" + static_runtime_block
+    link_replacement_full = link_replacement + "\n" + static_runtime_block
     driver_text = driver_cmake.read_text(encoding="utf-8")
     if "target_link_options(vibeshine_kwin_gpu PRIVATE -static-libstdc++ -static-libgcc)" not in driver_text:
         replace_once(driver_cmake, link_replacement, link_replacement_full)
