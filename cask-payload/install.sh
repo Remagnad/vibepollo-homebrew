@@ -129,7 +129,7 @@ grep -q 'libdrm\.so\.2 =>' <<< "$KMS_LDD" ||
   fail "KMS capture requires the host system libdrm.so.2 runtime library"
 grep -q 'libcap\.so\.2 =>' <<< "$KMS_LDD" ||
   fail "KMS capture requires the host system libcap.so.2 runtime library"
-for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch; do
+for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch vibepollo-gpu-bridge-install vibepollo-gpu-bridge-uninstall; do
   [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
 done
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
