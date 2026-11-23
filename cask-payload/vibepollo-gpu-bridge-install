@@ -48,7 +48,7 @@ require_root_dir /var
 require_root_dir /var/lib
 require_root_dir "$(dirname "$STATE_DIR")"
 require_root_dir "$STATE_DIR"
-for command_name in stat sha256sum awk install mktemp readelf ldd realpath systemctl; do
+for command_name in stat sha256sum awk install mktemp readelf ldd realpath systemctl find sed; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -167,6 +167,7 @@ rollback() {
     if [[ "$LIBRARY_INSTALLED" == 1 ]]; then restore_file "$LIBRARY_TARGET" "$BACKUP_LIBRARY" "$HAD_LIBRARY"; fi
     if [[ "$KWIN_INSTALLED" == 1 ]]; then restore_file "$KWINDROPIN_TARGET" "$BACKUP_KWIN" "$HAD_KWIN"; fi
     if [[ "$LOGIN_INSTALLED" == 1 ]]; then restore_file "$LOGINDROPIN_TARGET" "$BACKUP_LOGIN" "$HAD_LOGIN"; fi
+    rm -f -- "$LIBRARY_TARGET.new" "$KWINDROPIN_TARGET.new" "$LOGINDROPIN_TARGET.new"
     if [[ "$SYSEXT_INSTALLED" == 1 ]]; then
       if [[ "$HAD_SYSEXT" == 1 ]]; then
         rm -rf -- "$SYSEXT_ROOT"
@@ -262,13 +263,14 @@ else
   fi
   relative_lib_dir="$(printf '%s' "$LIB_DIR" | sed 's#^/usr/##')"
   LIBRARY_TARGET="$SYSEXT_ROOT/usr/$relative_lib_dir/libvibeshine-kwin-gpu.so"
+  if [[ "$PRIOR_MODE" == sysext && "$PRIOR_LIBRARY_PATH" != "$LIBRARY_TARGET" ]]; then
+    fail "host library directory changed since the previous system-extension install; uninstall the existing bridge and reinstall"
+  fi
   if [[ "$PRIOR_MODE" != "" && "$PRIOR_MODE" != sysext ]]; then
     fail "the host changed from a writable to an immutable system library directory; uninstall the existing bridge and reinstall"
   fi
-  if [[ ! -e "$SYSEXT_ROOT" ]]; then SYSEXT_INSTALLED=1; fi
-  mkdir -p -- "$SYSEXT_ROOT/usr/lib/extension-release.d"
-  chown root:root "$SYSEXT_ROOT"
-  chmod 0755 "$SYSEXT_ROOT"
+  SYSEXT_INSTALLED=1
+  install -d -o root -g root -m 0755 "$SYSEXT_ROOT" "$SYSEXT_ROOT/usr" "$SYSEXT_ROOT/usr/lib" "$SYSEXT_ROOT/usr/lib/extension-release.d"
   cat > "$SYSEXT_ROOT/usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge" <<'EOF'
 ID=_any
 SYSEXT_SCOPE=system
