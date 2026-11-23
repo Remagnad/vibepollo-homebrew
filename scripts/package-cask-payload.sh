@@ -59,17 +59,21 @@ grep -Fq 'SOCKET_GROUP="$(id -gn "$SOCKET_USER")"' "$tmp/install.sh"
 cp "$payload_dir/vibeshine-drmctl" "$tmp/vibeshine-drmctl"
 cp "$payload_dir/vibepollo-lifecycle" "$tmp/vibepollo-lifecycle"
 cp "$payload_dir/vibepollo-user-launch" "$tmp/vibepollo-user-launch"
+cp "$payload_dir/vibepollo-gpu-bridge-install" "$tmp/vibepollo-gpu-bridge-install"
+cp "$payload_dir/vibepollo-gpu-bridge-uninstall" "$tmp/vibepollo-gpu-bridge-uninstall"
+bash -n "$tmp/vibepollo-gpu-bridge-install"
+bash -n "$tmp/vibepollo-gpu-bridge-uninstall"
 bash "$script_dir/build-kms-helper.sh" "$source_archive" "$tmp/vibeshine-kms-capture"
 for file in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
     cp "$integration_dir/$file" "$tmp/$file"
 done
-chmod 0755 "$tmp/install.sh" "$tmp/install-complete.sh" "$tmp/uninstall.sh" "$tmp/uninstall-complete.sh" "$tmp/vibepollo-askpass" "$tmp/vibeshine-drmctl" "$tmp/vibepollo-lifecycle" "$tmp/vibepollo-user-launch" "$tmp/vibeshine-kms-capture"
+chmod 0755 "$tmp/install.sh" "$tmp/install-complete.sh" "$tmp/uninstall.sh" "$tmp/uninstall-complete.sh" "$tmp/vibepollo-askpass" "$tmp/vibeshine-drmctl" "$tmp/vibepollo-lifecycle" "$tmp/vibepollo-user-launch" "$tmp/vibeshine-kms-capture" "$tmp/vibepollo-gpu-bridge-install" "$tmp/vibepollo-gpu-bridge-uninstall"
 chmod 0644 "$tmp/vibeshine-vkms.service" "$tmp/vibeshine-vkms-control.socket" "$tmp/vibeshine-vkms-control@.service"
 
 mkdir -p -- "$(dirname -- "$output")"
 epoch="${SOURCE_DATE_EPOCH:-0}"
 tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner \
-    -C "$tmp" -cf - install.sh install-complete.sh uninstall.sh uninstall-complete.sh vibepollo-askpass vibeshine-drmctl vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture vibeshine-vkms vibeshine-vkms-quiesce \
+    -C "$tmp" -cf - install.sh install-complete.sh uninstall.sh uninstall-complete.sh vibepollo-askpass vibeshine-drmctl vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture vibepollo-gpu-bridge-install vibepollo-gpu-bridge-uninstall vibeshine-vkms vibeshine-vkms-quiesce \
     vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service | gzip -n -1 > "$output"
 sha256sum "$output"
 echo "Created Cask payload: $output"
