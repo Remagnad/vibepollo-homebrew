@@ -31,7 +31,7 @@ safe_dropin_path() {
 restore_file() {
   local destination="$1" backup="$2" existed="$3"
   if [[ "$existed" == 1 ]]; then
-    install -o root -g root -m 0644 "$backup" "$destination.restore"
+    cp -a -- "$backup" "$destination.restore"
     mv -f -- "$destination.restore" "$destination"
   else
     rm -f -- "$destination"
@@ -218,11 +218,11 @@ if [[ -e "$RECEIPT" ]]; then
   [[ "$PRIOR_MODE" == sysext || "$PRIOR_LIBRARY_PATH" == "$LIB_DIR/libvibeshine-kwin-gpu.so" ]] ||
     fail "host library directory changed since the previous install; uninstall the current GPU bridge before migrating"
   if [[ -e "$PRIOR_LIBRARY_PATH" ]]; then
-    cp -p -- "$PRIOR_LIBRARY_PATH" "$BACKUP_LIBRARY"
+    cp -a -- "$PRIOR_LIBRARY_PATH" "$BACKUP_LIBRARY"
     HAD_LIBRARY=1
   fi
-  if [[ -e "$KWINDROPIN_TARGET" ]]; then cp -p -- "$KWINDROPIN_TARGET" "$BACKUP_KWIN"; HAD_KWIN=1; fi
-  if [[ -e "$LOGINDROPIN_TARGET" ]]; then cp -p -- "$LOGINDROPIN_TARGET" "$BACKUP_LOGIN"; HAD_LOGIN=1; fi
+  if [[ -e "$KWINDROPIN_TARGET" ]]; then cp -a -- "$KWINDROPIN_TARGET" "$BACKUP_KWIN"; HAD_KWIN=1; fi
+  if [[ -e "$LOGINDROPIN_TARGET" ]]; then cp -a -- "$LOGINDROPIN_TARGET" "$BACKUP_LOGIN"; HAD_LOGIN=1; fi
   if [[ "$PRIOR_MODE" == sysext ]]; then
     [[ "$PRIOR_SYSEXT_ROOT" == "$SYSEXT_ROOT" && -d "$SYSEXT_ROOT" ]] ||
       fail "previous system extension directory is missing or unexpected"
