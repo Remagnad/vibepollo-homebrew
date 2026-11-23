@@ -52,6 +52,19 @@ for command_name in stat sha256sum awk install mktemp readelf ldd realpath syste
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
+# The bridge is specifically for NVIDIA's KWin/GBM GPU-association path.
+# Do not globally change KWin's udmabuf behavior on AMD/Intel-only machines.
+NVIDIA_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+  [[ -f "$vendor_file" ]] || continue
+  IFS= read -r vendor < "$vendor_file" || true
+  if [[ "$vendor" == 0x10de ]]; then NVIDIA_PRESENT=1; break; fi
+done
+if [[ "$NVIDIA_PRESENT" != 1 ]]; then
+  log "no NVIDIA PCI device detected; skipping the NVIDIA-specific KWin GPU bridge"
+  exit 0
+fi
+
 BRIDGE_SOURCE="$APP_PREFIX/lib/libvibeshine-kwin-gpu.so"
 KWINDROPIN_SOURCE="$APP_PREFIX/lib/systemd/user/plasma-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
 LOGINDROPIN_SOURCE="$APP_PREFIX/lib/systemd/user/plasma-login-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
@@ -255,11 +268,10 @@ else
   if [[ ! -d /var/lib/extensions ]]; then install -d -o root -g root -m 0755 /var/lib/extensions; fi
   require_root_dir /var/lib/extensions
   if [[ -e "$SYSEXT_ROOT" || -L "$SYSEXT_ROOT" ]]; then
-    [[ "$PRIOR_MODE" == sysext && "$PRIOR_SYSEXT_ROOT" == "$SYSEXT_ROOT" ]] ||
+    [[ "$PRIOR_MODE" == sysext && "$PRIOR_SYSEXT_ROOT" == "$SYSEXT_ROOT" &&
+       "$HAD_SYSEXT" == 1 && -d "$BACKUP_SYSEXT" ]] ||
       fail "refusing to overwrite an unowned system extension directory"
     require_root_dir "$SYSEXT_ROOT"
-    cp -a -- "$SYSEXT_ROOT" "$BACKUP_SYSEXT"
-    HAD_SYSEXT=1
   fi
   relative_lib_dir="$(printf '%s' "$LIB_DIR" | sed 's#^/usr/##')"
   LIBRARY_TARGET="$SYSEXT_ROOT/usr/$relative_lib_dir/libvibeshine-kwin-gpu.so"
