@@ -25,12 +25,12 @@ __BOTTLE_BLOCK__
   depends_on "jinja2-cli" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
-  depends_on "patchelf" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
   # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
   # external tap out of depends_on lets users pour the published bottle directly.
   depends_on "mold" => :build
   depends_on "node" => :build
+  depends_on "patchelf" => :build
   depends_on "pkgconf" => :build
   depends_on "shaderc" => :build
   depends_on "vulkan-headers" => :build
