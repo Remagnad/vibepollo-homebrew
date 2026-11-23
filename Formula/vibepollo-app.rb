@@ -273,7 +273,7 @@ class VibepolloApp < Formula
       odie "The GPU bridge is missing its required libdrm runtime link" unless
         gpu_bridge_needed.include?("libdrm.so.2")
       odie "The GPU bridge must statically link the C++ runtime" if
-        gpu_bridge_needed.any? { |library| %w[libstdc++.so.6 libgcc_s.so.1].include?(library) }
+        gpu_bridge_needed.intersect?(%w[libstdc++.so.6 libgcc_s.so.1])
       odie "The GPU bridge must not carry an RPATH or RUNPATH into Homebrew" if
         gpu_bridge_dynamic.match?(/\((?:RPATH|RUNPATH)\)/)
 
