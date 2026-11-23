@@ -83,8 +83,9 @@ cask "vibepollo" do
     On systems with an NVIDIA PCI GPU, the Cask also installs the upstream
     KWin GPU-association bridge as a root-owned shared library with the
     secure-loader trust bit, plus user-service drop-ins for KWin and Plasma.
-    It uses the host libdrm, libgbm and C++ runtime; these must be installed by
-    your distribution. The bridge is skipped on systems without NVIDIA GPUs.
+    It uses the host libdrm and libgbm runtime libraries; the C++ runtime
+    is statically linked into the bridge. The bridge is skipped on systems
+    without NVIDIA GPUs.
     On immutable systems, the library is exposed through systemd-sysext when
     available. Log out and back in after installation or upgrade so KWin
     starts with the new bridge configuration.
