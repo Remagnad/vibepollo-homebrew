@@ -274,8 +274,9 @@ class VibepolloApp < Formula
         gpu_bridge_needed.include?("libdrm.so.2")
       odie "The GPU bridge must statically link the C++ runtime" if
         gpu_bridge_needed.intersect?(%w[libstdc++.so.6 libgcc_s.so.1])
-      odie "The GPU bridge must not carry an RPATH or RUNPATH into Homebrew" if
-        gpu_bridge_dynamic.match?(/\((?:RPATH|RUNPATH)\)/)
+      gpu_bridge_rpath = gpu_bridge_dynamic.lines.grep(/\((?:RPATH|RUNPATH)\)/)
+      odie "The GPU bridge must not carry an RPATH or RUNPATH into Homebrew: #{gpu_bridge_rpath.join.strip}" if
+        gpu_bridge_rpath.any?
 
       # The Cask copies this peer-credential broker into its privileged runtime
       # directory. Stage it explicitly so the application bottle always carries
