@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9/vibepollo-source-2.18.9.tar.gz"
-  sha256 "eeeec3a0afa7dedb0e3b9dcf06120c7ba2eb8bc5092d4f12b3823f77b01d8fcb"
+  sha256 "30459b22558d32e1c24da80c80ce7ac4d8d5fb35ca08eb809ac81d951d4023f8"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9"
-    sha256 x86_64_linux: "883ba3f01e8bbf8e4430991eda3e661183ee72b730f057dc8245b3981a6d257e"
+    sha256 x86_64_linux: "7ac855faf4962ff46c5066dd7c7e78914c894c6160c0e1e6b75bd46c41d409c9"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
