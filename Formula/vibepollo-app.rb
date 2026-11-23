@@ -17,6 +17,7 @@ class VibepolloApp < Formula
   depends_on "mold" => :build
   depends_on "ninja" => :build
   depends_on "nlohmann-json" => :build
+  depends_on "patchelf" => :build
   # Matches Vibepollo upstream Linux release policy: CUDA 12.9.1 with Pascal support.
   # CUDA is a source-build toolchain, not a bottle install dependency; keeping the
   # external tap out of depends_on lets users pour the published bottle directly.
@@ -268,6 +269,10 @@ class VibepolloApp < Formula
       # into a trusted host library directory only by the privileged Cask.
       gpu_bridge = lib/"libvibeshine-kwin-gpu.so"
       odie "The KWin GPU bridge was not installed by CMake" unless gpu_bridge.file?
+      # The app intentionally keeps Homebrew dependency RUNPATHs. Strip those
+      # only from this privileged library before it is copied into a trusted
+      # host loader directory by the Cask.
+      system "patchelf", "--remove-rpath", gpu_bridge
       gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)
       gpu_bridge_needed = gpu_bridge_dynamic.scan(/\(NEEDED\).*?\[([^\]]+)\]/).flatten
       odie "The GPU bridge is missing its required libdrm runtime link" unless
