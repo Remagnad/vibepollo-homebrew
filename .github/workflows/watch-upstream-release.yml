@@ -145,7 +145,7 @@ jobs:
             # Match only inputs that affect the application source build or
             # its bottle. Avoid shell case-pattern continuations here so this
             # block remains valid under GitHub's generated Bash script.
-            if grep -Eq '^(scripts/prepare-source\.sh|scripts/apply-homebrew-patches\.py|scripts/apply-kms-homebrew-patch\.py|scripts/render-formula\.py|scripts/install-cuda-components\.sh|scripts/vibepollo-launcher\.sh|scripts/vibepollo-module-update\.sh|scripts/prune-actions-caches\.sh|Formula/vibepollo-app\.rb)$' <<< "$changed_files"; then
+            if grep -Eq '^(scripts/prepare-source\.sh|scripts/apply-homebrew-patches\.py|scripts/apply-kms-homebrew-patch\.py|scripts/apply-gpu-bridge-homebrew-patch\.py|scripts/render-formula\.py|scripts/install-cuda-components\.sh|scripts/vibepollo-launcher\.sh|scripts/vibepollo-module-update\.sh|scripts/prune-actions-caches\.sh|Formula/vibepollo-app\.rb)$' <<< "$changed_files"; then
               force_rebuild=true
             fi
           fi
