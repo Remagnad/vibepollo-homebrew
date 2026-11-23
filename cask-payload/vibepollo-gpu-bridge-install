@@ -80,7 +80,7 @@ DYNAMIC="$(readelf -dW "$BRIDGE_SOURCE" 2>/dev/null)" || fail "could not inspect
 if grep -Eq '\((RPATH|RUNPATH)\)' <<< "$DYNAMIC"; then
   fail "the GPU bridge contains RPATH/RUNPATH; refusing to load Homebrew Cellar libraries into KWin"
 fi
-if grep -Eq '\\[(libstdc\\+\\+\\.so\\.6|libgcc_s\\.so\\.1)\\]' <<< "$DYNAMIC"; then
+if grep -Fq '[libstdc++.so.6]' <<< "$DYNAMIC" || grep -Fq '[libgcc_s.so.1]' <<< "$DYNAMIC"; then
   fail "the GPU bridge must statically link the C++ runtime; refusing host ABI drift"
 fi
 NEEDED="$(sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' <<< "$DYNAMIC")"
