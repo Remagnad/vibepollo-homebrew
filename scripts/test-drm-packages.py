@@ -21,7 +21,7 @@ cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
 payload_files = [
     "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
-    "vibeshine-vkms", "vibeshine-vkms-quiesce",
+    "vibeshine-kms-capture", "vibeshine-vkms", "vibeshine-vkms-quiesce",
     "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
     "vibeshine-vkms-control@.service",
 ]
@@ -45,6 +45,14 @@ module_updater_script = root / "scripts/vibepollo-module-update.sh"
 if not module_updater_script.is_file() or module_updater_script.is_symlink():
     raise SystemExit(f"Missing or unsafe module updater: {module_updater_script}")
 subprocess.run(["bash", "-n", str(module_updater_script)], check=True)
+kms_builder_script = root / "scripts/build-kms-helper.sh"
+if not kms_builder_script.is_file() or kms_builder_script.is_symlink():
+    raise SystemExit(f"Missing or unsafe KMS helper builder: {kms_builder_script}")
+subprocess.run(["bash", "-n", str(kms_builder_script)], check=True)
+kms_patch_script = root / "scripts/apply-kms-homebrew-patch.py"
+if not kms_patch_script.is_file() or kms_patch_script.is_symlink():
+    raise SystemExit(f"Missing or unsafe KMS source patch: {kms_patch_script}")
+subprocess.run(["python3", "-c", "import ast, pathlib; ast.parse(pathlib.Path(r'" + str(kms_patch_script) + "').read_text())"], check=True)
 debug_prepare_script = root / ".github/scripts/prepare-debug-source.sh"
 subprocess.run(["bash", "-n", str(debug_prepare_script)], check=True)
 for name in payload_files[-3:]:
@@ -142,6 +150,19 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
                         script.write(member_bytes)
                         script.flush()
                         subprocess.run(["bash", "-n", script.name], check=True)
+                if member.name == "vibeshine-kms-capture":
+                    with tempfile.NamedTemporaryFile() as helper:
+                        helper.write(member_bytes)
+                        helper.flush()
+                        dynamic = subprocess.run(
+                            ["readelf", "-dW", helper.name], check=True,
+                            capture_output=True, text=True
+                        ).stdout
+                        needed = set(re.findall(r"\(NEEDED\).*\[([^]]+)\]", dynamic))
+                        if needed != {"libdrm.so.2", "libcap.so.2", "libc.so.6"}:
+                            raise SystemExit(f"Unexpected KMS helper dependencies: {sorted(needed)}")
+                        if re.search(r"\((RPATH|RUNPATH)\)", dynamic):
+                            raise SystemExit("KMS helper must not contain an RPATH/RUNPATH")
                 if source_path is not None and member_bytes != source_path.read_bytes():
                     source_matches = False
     except tarfile.TarError as error:
@@ -240,6 +261,10 @@ if '#{version.csv.first}/vibepollo-drm-integration-#{version.csv.first}.tar.gz' 
 
 formula_text = formula.read_text(encoding="utf-8")
 prepare_source_text = (root / "scripts/prepare-source.sh").read_text(encoding="utf-8")
+kms_patch_text = kms_patch_script.read_text(encoding="utf-8")
+kms_builder_text = kms_builder_script.read_text(encoding="utf-8")
+app_formula_text = (root / "Formula/vibepollo-app.rb").read_text(encoding="utf-8")
+formula_template_text = (root / "scripts/render-formula.py").read_text(encoding="utf-8")
 prepare_debug_source_text = (root / ".github/scripts/prepare-debug-source.sh").read_text(encoding="utf-8")
 homebrew_patches_text = (root / "scripts/apply-homebrew-patches.py").read_text(encoding="utf-8")
 cask_packager_text = (root / "scripts/package-cask-payload.sh").read_text(encoding="utf-8")
@@ -253,15 +278,76 @@ checks = [
      not (root / ".github/workflows/publish-cask-payload.yml").exists()),
     ("Linux-specific libvirtualdisplay gitlink is fetched when present",
      "third-party/libvirtualdisplay-linux" in prepare_source_text),
+    ("pinned source preparation applies the reviewed KMS Homebrew patch",
+     'apply-kms-homebrew-patch.py" "$source_dir"' in prepare_source_text and
+     '"kms_patch": "scripts/apply-kms-homebrew-patch.py"' in prepare_source_text),
+    ("app Formula and generated Formula both enable KMS",
+     '"-DSUNSHINE_ENABLE_DRM=ON"' in app_formula_text and
+     '"-DSUNSHINE_ENABLE_DRM=ON"' in formula_template_text),
+    ("Debug CI compiles KMS with host DRM/libcap headers",
+     "-DSUNSHINE_ENABLE_DRM=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "libdrm-dev libcap-dev pkgconf" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
+    ("PR Debug builds do not block releases or mutate shared dependency caches",
+     "vibepollo-debug-pr-{0}" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "steps.brew-paths.outcome == 'success' && github.event_name != 'pull_request'" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "steps.debug-ccache-save.outcome == 'success' && github.event_name != 'pull_request'" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
+    ("KMS source patch routes capability-free physical cards through IPC",
+     'kms_capture::client_t::open(fd.el)' in kms_patch_text and
+     '"/var/lib/vibepollo/drm/bin/vibeshine-kms-capture"' in kms_patch_text and
+     'open_card_device' in kms_patch_text and
+     'if (!*card_is_vibeshine) return EOPNOTSUPP;' in kms_patch_text and
+     kms_patch_text.count('if (!card.requires_presentation_events())') == 2),
+    ("KMS helper build is restricted to system libdrm/libcap/libc",
+     'libdrm.so.2' in kms_builder_text and 'libcap.so.2' in kms_builder_text and
+     'libc.so.6' in kms_builder_text and 'pkg-config --cflags libdrm' in kms_builder_text and
+     'test-kms-capture-helper.c' in kms_builder_text and
+     '"$tmp/test-kms-capture-helper"' in kms_builder_text and 'RPATH' in kms_builder_text),
     ("debug build fetches the Linux libvirtualdisplay gitlink before CMake",
      "third-party/libvirtualdisplay-linux" in prepare_debug_source_text and
      'submodules+=(third-party/libvirtualdisplay-linux)' in prepare_debug_source_text and
      'git -C "$source_dir" ls-tree HEAD -- third-party/libvirtualdisplay-linux' in prepare_debug_source_text),
+    ("debug build also applies the restricted physical KMS helper patch",
+     'apply-kms-homebrew-patch.py" "$source_dir"' in prepare_debug_source_text and
+     '"kms_patch": "scripts/apply-kms-homebrew-patch.py"' in prepare_debug_source_text),
     ("Homebrew patches the Linux-selected libvirtualdisplay source",
      'third-party/libvirtualdisplay-linux' in homebrew_patches_text and
      'libvirtualdisplay_root / "src/driver/CMakeLists.txt"' in homebrew_patches_text),
     ("Cask payload uses the Linux-selected libvirtualdisplay scripts",
      'third-party/libvirtualdisplay-linux/linux/packaging' in cask_packager_text),
+    ("Cask packages the restricted KMS helper from the pinned source bundle",
+     'build-kms-helper.sh' in cask_packager_text and
+     '"$tmp/vibeshine-kms-capture"' in cask_packager_text and
+     'vibeshine-kms-capture' in payload_files),
+    ("Cask grants only permitted CAP_SYS_ADMIN to the dedicated helper",
+     'setcap cap_sys_admin=p "$BIN_DIR/vibeshine-kms-capture"' in install_text and
+     'cap_sys_admin=p' in install_text and
+     'getcap "$BIN_DIR/vibeshine-kms-capture"' in install_text and
+     'CAP_SYS_ADMIN' in install_text and
+     'libdrm.so.2' in install_text and 'libcap.so.2' in install_text and
+     'vibeshine-kms-capture' in install_text and
+     'vibeshine-kms-capture' in uninstall_text and
+     'KMS helper file capabilities changed outside this Cask' in uninstall_text),
+    ("SELinux file-context policy includes the KMS helper",
+     'vibeshine-kms-capture)' in install_text and
+     'vibeshine-kms-capture)' in uninstall_text),
+    ("Cask upgrades migrate the owned legacy SELinux helper rule transactionally",
+     'PRIOR_SELINUX_FCONTEXT_SPEC="$(state_value selinux_fcontext_spec)"' in install_text and
+     'SELINUX_LEGACY_FCONTEXT_SPEC=' in install_text and
+     'both the old and new Vibeshine SELinux rules exist' in install_text and
+     'semanage fcontext -d -f f "$PRIOR_SELINUX_FCONTEXT_SPEC"' in install_text and
+     'SELINUX_PRIOR_RULE_REMOVED=1' in install_text and
+     'semanage fcontext -a -f f -t bin_t "$PRIOR_SELINUX_FCONTEXT_SPEC"' in install_text and
+     'SELINUX_STATE_FCONTEXT_SPEC' in install_text),
+    ("SELinux migration rollback restores both old rule and previous ownership state",
+     'STATE_FILE_BACKUP="$TMP_DIR/vibeshine-drm-install.previous"' in install_text and
+     'cp -p -- "$STATE_FILE" "$STATE_FILE_BACKUP"' in install_text and
+     'STATE_FILE_UPDATED=1' in install_text and
+     'cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp"' in install_text and
+     'rm -f -- "$STATE_FILE"' in install_text),
+    ("Cask uninstall follows the exact SELinux rule recorded by the installed version",
+     'stored_selinux_spec="$(state_value selinux_fcontext_spec)"' in uninstall_text and
+     'SELINUX_FCONTEXT_SPEC="$stored_selinux_spec"' in uninstall_text and
+     'SELINUX_LEGACY_FCONTEXT_SPEC=' in uninstall_text),
     ("Cask delegates privileged uninstall to Homebrew install steps", "uninstall_preflight_steps do" in cask_text and 'run "uninstall.sh"' in cask_text and "base: :staged_path" in cask_text and "sudo: true" in cask_text),
     ("Cask declares the audit-required uninstall artifact", "uninstall script: {" in cask_text and "uninstall-complete.sh" in cask_text),
     ("Cask overrides inherited askpass for the sudo process", '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),

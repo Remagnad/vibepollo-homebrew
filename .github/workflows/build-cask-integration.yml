@@ -10,6 +10,8 @@ on:
       - "integration/**"
       - "scripts/package-cask-payload.sh"
       - "scripts/apply-homebrew-patches.py"
+      - "scripts/apply-kms-homebrew-patch.py"
+      - "scripts/build-kms-helper.sh"
       - "scripts/vibepollo-launcher.sh"
       - "scripts/render-drm-packages.py"
       - "scripts/test-drm-packages.py"
@@ -126,6 +128,12 @@ jobs:
             --pattern "$SOURCE_ASSET" --dir dist
           test -s "dist/$SOURCE_ASSET"
 
+      - name: Install system development headers for the privileged KMS helper
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev pkgconf
+
       - name: Build only the Cask integration archive
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -151,7 +159,7 @@ jobs:
           import pathlib, sys, tarfile
           expected = {
               "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
-              "vibeshine-vkms", "vibeshine-vkms-quiesce",
+              "vibeshine-kms-capture", "vibeshine-vkms", "vibeshine-vkms-quiesce",
               "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
               "vibeshine-vkms-control@.service",
           }

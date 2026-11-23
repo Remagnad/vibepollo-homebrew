@@ -10,7 +10,10 @@ MODULES_DIR="$DRM_ROOT/modules"
 BIN_DIR="$DRM_ROOT/bin"
 STATE_DIR="$DRM_ROOT/state"
 STATE_FILE="$STATE_DIR/vibeshine-drm-install"
-SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch|vibeshine-kms-capture)"
+SELINUX_LEGACY_FCONTEXT_SPEC="$BIN_DIR/(vibeshine-drmctl|vibeshine-vkms|vibeshine-vkms-quiesce|vibeshine-vkms-peercred|vibepollo-lifecycle|vibepollo-user-launch)"
+SELINUX_STATE_FCONTEXT_SPEC="$SELINUX_FCONTEXT_SPEC"
+SELINUX_PRIOR_RULE_REMOVED=0
 SELINUX_MODULE_FCONTEXT_SPEC="$MODULES_DIR/[^/]+/vibeshine_drm[.]ko"
 SELINUX_ACTIVE=0
 SELINUX_RULE_OWNED=0
@@ -39,7 +42,7 @@ state_value() {
 
 [[ "$EUID" -eq 0 ]] || fail "Homebrew must run this installer with sudo: true"
 [[ "$#" -eq 3 ]] || fail "expected DRM Formula prefix, app Formula prefix and staged payload directory"
-for command_name in stat sha256sum awk modinfo openssl install mktemp readelf; do
+for command_name in stat sha256sum awk modinfo openssl install mktemp readelf ldd setcap getcap; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -62,6 +65,17 @@ case "$SELINUX_MODE" in
 esac
 PRIOR_SELINUX_RULE_OWNED="$(state_value selinux_fcontext_owned)"
 [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_RULE_OWNED=0
+PRIOR_SELINUX_FCONTEXT_SPEC="$(state_value selinux_fcontext_spec)"
+if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" ]]; then
+  [[ "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_FCONTEXT_SPEC" ||
+     "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]] ||
+    fail "the stored SELinux helper rule is not a known Cask-owned rule; refusing to migrate or overwrite it"
+  # When SELinux is currently disabled, preserve the previous owned rule in
+  # state so a later uninstall can still remove exactly that rule.
+  if [[ "$SELINUX_ACTIVE" != "1" ]]; then
+    SELINUX_STATE_FCONTEXT_SPEC="$PRIOR_SELINUX_FCONTEXT_SPEC"
+  fi
+fi
 SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
 PRIOR_SELINUX_MODULE_RULE_OWNED="$(state_value selinux_module_fcontext_owned)"
 [[ "$PRIOR_SELINUX_MODULE_RULE_OWNED" == "1" ]] || PRIOR_SELINUX_MODULE_RULE_OWNED=0
@@ -73,6 +87,7 @@ STAGED_HELPER="$STAGED_DIR/vibeshine-drmctl"
 PEERCRED_HELPER="$APP_PREFIX/libexec/vibeshine-vkms-peercred"
 LIFECYCLE_HELPER="$STAGED_DIR/vibepollo-lifecycle"
 USER_LAUNCHER="$STAGED_DIR/vibepollo-user-launch"
+KMS_CAPTURE_HELPER="$STAGED_DIR/vibeshine-kms-capture"
 LIFECYCLE_STATE="$STATE_DIR/vibepollo-lifecycle"
 MODULE_FILE="$FORMULA_PREFIX/libexec/vibeshine_drm.ko"
 for metadata in kernel-release kernel-build-dir module-version libvirtualdisplay-commit; do
@@ -94,6 +109,26 @@ PEERCRED_DYNAMIC_SECTION="$(readelf -dW "$PEERCRED_HELPER" 2>/dev/null)" ||
 if grep -q "(NEEDED)" <<< "$PEERCRED_DYNAMIC_SECTION"; then
   fail "vibeshine-vkms-peercred has dynamic dependencies; rebuild vibepollo-app with the static helper fix"
 fi
+[[ -f "$KMS_CAPTURE_HELPER" && ! -L "$KMS_CAPTURE_HELPER" ]] ||
+  fail "the restricted KMS capture helper is missing from the Cask payload"
+KMS_PROGRAM_HEADERS="$(readelf -lW "$KMS_CAPTURE_HELPER" 2>/dev/null)" ||
+  fail "could not inspect the KMS capture helper ELF headers"
+grep -q "Requesting program interpreter" <<< "$KMS_PROGRAM_HEADERS" ||
+  fail "the KMS capture helper must use the host system dynamic loader"
+KMS_DYNAMIC_SECTION="$(readelf -dW "$KMS_CAPTURE_HELPER" 2>/dev/null)" ||
+  fail "could not inspect the KMS capture helper ELF dependencies"
+if grep -Eq '\((RPATH|RUNPATH)\)' <<< "$KMS_DYNAMIC_SECTION"; then
+  fail "the KMS capture helper must not contain an RPATH or RUNPATH"
+fi
+KMS_LDD="$(ldd "$KMS_CAPTURE_HELPER" 2>&1)" ||
+  fail "could not resolve KMS capture helper host libraries"
+if grep -q "not found" <<< "$KMS_LDD"; then
+  fail "KMS capture needs host libdrm.so.2 and libcap.so.2; install the system libdrm and libcap runtime packages"
+fi
+grep -q 'libdrm\.so\.2 =>' <<< "$KMS_LDD" ||
+  fail "KMS capture requires the host system libdrm.so.2 runtime library"
+grep -q 'libcap\.so\.2 =>' <<< "$KMS_LDD" ||
+  fail "KMS capture requires the host system libcap.so.2 runtime library"
 for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch; do
   [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
 done
@@ -130,7 +165,7 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
   actual="$(sha256sum "$existing" | awk '{print $1}')"
   [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
 done
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
   existing="$BIN_DIR/$helper"
   [[ -e "$existing" || -L "$existing" ]] || continue
   [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing helper: $existing"
@@ -237,18 +272,44 @@ case "$SIGN_HASH" in
 esac
 
 TMP_DIR="$(mktemp -d /var/tmp/vibepollo-drm-sign.XXXXXX)"
+STATE_FILE_BACKUP="$TMP_DIR/vibeshine-drm-install.previous"
+STATE_FILE_BACKED_UP=0
+STATE_FILE_UPDATED=0
 cleanup() {
-  rm -rf -- "$TMP_DIR"
+  if [[ "$STATE_FILE_UPDATED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    if [[ "$STATE_FILE_BACKED_UP" == "1" ]]; then
+      state_restore_tmp=""
+      if state_restore_tmp="$(mktemp "$STATE_DIR/.vibeshine-drm-install.restore.XXXXXX")" &&
+         cp -p -- "$STATE_FILE_BACKUP" "$state_restore_tmp" &&
+         mv -f -- "$state_restore_tmp" "$STATE_FILE"; then
+        :
+      else
+        printf 'vibepollo Cask installer: error: could not restore the previous ownership state during rollback\n' >&2
+        [[ -z "$state_restore_tmp" ]] || rm -f -- "$state_restore_tmp"
+      fi
+    else
+      rm -f -- "$STATE_FILE"
+    fi
+  fi
   if [[ "$SELINUX_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     semanage fcontext -d -f f "$SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
-    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch >/dev/null 2>&1 || true
+    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch "$BIN_DIR"/vibeshine-kms-capture >/dev/null 2>&1 || true
+  fi
+  if [[ "$SELINUX_PRIOR_RULE_REMOVED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
+    semanage fcontext -a -f f -t bin_t "$PRIOR_SELINUX_FCONTEXT_SPEC" >/dev/null 2>&1 || true
+    restorecon -F "$BIN_DIR"/vibeshine-drmctl "$BIN_DIR"/vibeshine-vkms "$BIN_DIR"/vibeshine-vkms-quiesce "$BIN_DIR"/vibeshine-vkms-peercred "$BIN_DIR"/vibepollo-lifecycle "$BIN_DIR"/vibepollo-user-launch "$BIN_DIR"/vibeshine-kms-capture >/dev/null 2>&1 || true
   fi
   if [[ "$SELINUX_MODULE_RULE_ADDED" == "1" && "$SELINUX_STATE_COMMITTED" != "1" ]]; then
     semanage fcontext -d -f f "$SELINUX_MODULE_FCONTEXT_SPEC" >/dev/null 2>&1 || true
     restorecon -F "$MODULES_DIR/$KERNEL_RELEASE/vibeshine_drm.ko" >/dev/null 2>&1 || true
   fi
+  rm -rf -- "$TMP_DIR"
 }
 trap cleanup EXIT HUP INT TERM
+if [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]]; then
+  cp -p -- "$STATE_FILE" "$STATE_FILE_BACKUP"
+  STATE_FILE_BACKED_UP=1
+fi
 cp -- "$MODULE_FILE" "$TMP_DIR/vibeshine_drm.ko"
 "$SIGN_FILE" "$SIGN_HASH" "$PRIVATE_KEY" "$CERTIFICATE" "$TMP_DIR/vibeshine_drm.ko"
 SIG_ID="$(modinfo -F sig_id "$TMP_DIR/vibeshine_drm.ko" 2>/dev/null || true)"
@@ -262,6 +323,8 @@ DEST_DIR="$MODULES_DIR/$KERNEL_RELEASE"
   fail "refusing symbolic-link module destination"
 [[ ! -L "$BIN_DIR/vibeshine-drmctl" && ! -L "$BIN_DIR/vibeshine-drmctl.new" ]] ||
   fail "refusing symbolic-link controller destination"
+[[ ! -L "$BIN_DIR/vibeshine-kms-capture" && ! -L "$BIN_DIR/vibeshine-kms-capture.new" ]] ||
+  fail "refusing symbolic-link KMS helper destination"
 install -o root -g root -m 0644 "$TMP_DIR/vibeshine_drm.ko" "$DEST_DIR/vibeshine_drm.ko.new"
 for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred; do
   [[ ! -L "$BIN_DIR/$helper" && ! -L "$BIN_DIR/$helper.new" ]] || fail "refusing symbolic-link helper destination: $BIN_DIR/$helper"
@@ -270,10 +333,11 @@ install -o root -g root -m 0755 "$STAGED_HELPER" "$BIN_DIR/vibeshine-drmctl.new"
 install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms" "$BIN_DIR/vibeshine-vkms.new"
 install -o root -g root -m 0755 "$STAGED_DIR/vibeshine-vkms-quiesce" "$BIN_DIR/vibeshine-vkms-quiesce.new"
 install -o root -g root -m 0755 "$PEERCRED_HELPER" "$BIN_DIR/vibeshine-vkms-peercred.new"
+install -o root -g root -m 0755 "$KMS_CAPTURE_HELPER" "$BIN_DIR/vibeshine-kms-capture.new"
 install -o root -g root -m 0755 "$LIFECYCLE_HELPER" "$BIN_DIR/vibepollo-lifecycle.new"
 install -o root -g root -m 0755 "$USER_LAUNCHER" "$BIN_DIR/vibepollo-user-launch.new"
 mv -f -- "$DEST_DIR/vibeshine_drm.ko.new" "$DEST_DIR/vibeshine_drm.ko"
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
   mv -f -- "$BIN_DIR/$helper.new" "$BIN_DIR/$helper"
 done
 UNIT_DIR="/etc/systemd/system"
@@ -293,21 +357,49 @@ systemctl daemon-reload
 
 if [[ "$SELINUX_ACTIVE" == "1" ]]; then
   existing_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  prior_selinux_context=""
+  if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+        "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]]; then
+    prior_selinux_context="$(semanage fcontext -l -C | awk -v spec="$PRIOR_SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+    if [[ -n "$prior_selinux_context" ]]; then
+      IFS=: read -r _ _ prior_selinux_type _ <<< "$prior_selinux_context"
+      [[ "$prior_selinux_type" == "bin_t" ]] ||
+        fail "the previous Cask-owned SELinux helper rule was changed outside this Cask; refusing to migrate it"
+      [[ -z "$existing_selinux_context" ]] ||
+        fail "both the old and new Vibeshine SELinux rules exist; refusing to guess ownership during migration"
+    fi
+  fi
   if [[ -n "$existing_selinux_context" ]]; then
     IFS=: read -r _ _ existing_selinux_type _ <<< "$existing_selinux_context"
     [[ "$existing_selinux_type" == "bin_t" ]] || fail "an existing SELinux rule assigns the Vibeshine helpers to $existing_selinux_type instead of bin_t; refusing to overwrite it"
-    SELINUX_RULE_OWNED="$PRIOR_SELINUX_RULE_OWNED"
+    if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+          "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_FCONTEXT_SPEC" ]]; then
+      SELINUX_RULE_OWNED=1
+    else
+      SELINUX_RULE_OWNED=0
+    fi
   else
     semanage fcontext -a -f f -t bin_t "$SELINUX_FCONTEXT_SPEC" || fail "could not add the persistent SELinux bin_t rule for Vibeshine helpers"
     SELINUX_RULE_ADDED=1
     SELINUX_RULE_OWNED=1
   fi
-  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+  for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
     restorecon -F "$BIN_DIR/$helper" || fail "could not apply the SELinux executable label to $BIN_DIR/$helper"
     helper_context="$(stat -c '%C' "$BIN_DIR/$helper")"
     IFS=: read -r _ _ helper_type _ <<< "$helper_context"
     [[ "$helper_type" == "bin_t" ]] || fail "SELinux did not label $BIN_DIR/$helper as bin_t (actual context: $helper_context)"
   done
+
+  # The new helper rule is now installed and all executables have been
+  # relabeled successfully. Only now remove the exact legacy Cask-owned rule.
+  if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
+        "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" &&
+        -n "$prior_selinux_context" ]]; then
+    semanage fcontext -d -f f "$PRIOR_SELINUX_FCONTEXT_SPEC" ||
+      fail "could not remove the previous Cask-owned SELinux helper rule"
+    SELINUX_PRIOR_RULE_REMOVED=1
+  fi
+  SELINUX_STATE_FCONTEXT_SPEC="$SELINUX_FCONTEXT_SPEC"
 
   existing_module_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
   if [[ -n "$existing_module_selinux_context" ]]; then
@@ -329,17 +421,26 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
     fail "SELinux did not label $MODULE_DEST_PATH as modules_object_t (actual context: $module_context)"
 fi
 
+# Apply the file capability after SELinux relabeling; verify the exact permitted
+# set that the KMS client's trust check expects. The main app receives none.
+setcap cap_sys_admin=p "$BIN_DIR/vibeshine-kms-capture" ||
+  fail "could not assign CAP_SYS_ADMIN to the restricted KMS helper (install the host libcap setcap utility)"
+KMS_CAPTURE_CAPS="$(getcap "$BIN_DIR/vibeshine-kms-capture")"
+[[ "$KMS_CAPTURE_CAPS" == "$BIN_DIR/vibeshine-kms-capture cap_sys_admin=p" ]] ||
+  fail "the KMS helper file capabilities are not exactly cap_sys_admin=p (actual: ${KMS_CAPTURE_CAPS:-none})"
+
 STATE_TMP="$(mktemp "$STATE_DIR/.vibeshine-drm-install.XXXXXX")"
 printf 'format=1\nkernel=%s\nmodule_version=%s\nmodule_srcversion=%s\nlibvirtualdisplay=%s\nmodule_sha256=%s\ncertificate_sha256=%s\nmanaged_load=%s\nload_token=%s\nselinux_fcontext_owned=%s\nselinux_fcontext_spec=%s\nselinux_module_fcontext_owned=%s\nselinux_module_fcontext_spec=%s\n' \
-  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_FCONTEXT_SPEC" "$SELINUX_MODULE_RULE_OWNED" "$SELINUX_MODULE_FCONTEXT_SPEC" > "$STATE_TMP"
+  "$KERNEL_RELEASE" "$EXPECTED_VERSION" "$MODULE_SRCVERSION" "$SOURCE_COMMIT" "$SIGNED_SHA256" "$CERT_SHA256" "$MANAGED_LOAD" "$LOAD_TOKEN" "$SELINUX_RULE_OWNED" "$SELINUX_STATE_FCONTEXT_SPEC" "$SELINUX_MODULE_RULE_OWNED" "$SELINUX_MODULE_FCONTEXT_SPEC" > "$STATE_TMP"
 chown root:root "$STATE_TMP"
 chmod 0644 "$STATE_TMP"
 mv -f -- "$STATE_TMP" "$STATE_FILE"
+STATE_FILE_UPDATED=1
 printf 'socket_group=%s\n' "$SOCKET_GROUP" >> "$STATE_FILE"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do
   printf 'unit_%s_sha256=%s\n' "$unit" "$(sha256sum "/etc/systemd/system/$unit" | awk '{print $1}')" >> "$STATE_FILE"
 done
-for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch; do
+for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
   printf 'helper_%s_sha256=%s\n' "$helper" "$(sha256sum "$BIN_DIR/$helper" | awk '{print $1}')" >> "$STATE_FILE"
 done
 chmod 0644 "$STATE_FILE"

@@ -12,6 +12,9 @@ on:
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
       - "scripts/prepare-source.sh"
+      - "scripts/apply-kms-homebrew-patch.py"
+      - "scripts/build-kms-helper.sh"
+      - "Formula/vibepollo-app.rb"
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
       - "scripts/apply-homebrew-patches.py"
@@ -31,6 +34,8 @@ on:
       - "Formula/vibepollo-drm.rb"
       - "Casks/vibepollo.rb"
       - "scripts/test-drm-packages.py"
+      - "scripts/apply-kms-homebrew-patch.py"
+      - "scripts/build-kms-helper.sh"
       - "scripts/vibepollo-module-update.sh"
       - "scripts/migrate-installed-cask-sudo.py"
       - "scripts/package-cask-payload.sh"
@@ -69,6 +74,12 @@ jobs:
         with:
           core: false
           cask: false
+
+      - name: Install system headers for the restricted KMS helper
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libdrm-dev libcap-dev pkgconf
 
       - name: Validate Formula, Cask, payload checksum and lifecycle policy
         env:
