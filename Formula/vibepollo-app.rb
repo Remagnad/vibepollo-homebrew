@@ -2,12 +2,12 @@ class VibepolloApp < Formula
   desc "Self-hosted game streaming host with Artemis support"
   homepage "https://github.com/Nonary/Vibepollo"
   url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9/vibepollo-source-2.18.9.tar.gz"
-  sha256 "30459b22558d32e1c24da80c80ce7ac4d8d5fb35ca08eb809ac81d951d4023f8"
+  sha256 "3556fcff5b68dac30a8ad7f1f8a7eb05a8ab33d07d8d223963724f052136ea77"
   license "GPL-3.0-only"
 
   bottle do
     root_url "https://github.com/Remagnad/vibepollo-homebrew/releases/download/vibepollo-2.18.9"
-    sha256 x86_64_linux: "7ac855faf4962ff46c5066dd7c7e78914c894c6160c0e1e6b75bd46c41d409c9"
+    sha256 x86_64_linux: "fbfccf717a77988b2dd122b53653d2d004dc231354a274265e48f19664c38723"
   end
 
   # Keep the application compiler/runtime ABI explicit on Linux. The app is
@@ -265,13 +265,12 @@ class VibepolloApp < Formula
       system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
 
-      # The KWin GPU bridge is built into the application keg but is copied
-      # into a trusted host library directory only by the privileged Cask.
+      # Stage the KWin GPU bridge in the app keg. The privileged Cask copies
+      # it into a host loader directory after checking host runtime libraries.
       gpu_bridge = lib/"libvibeshine-kwin-gpu.so"
       odie "The KWin GPU bridge was not installed by CMake" unless gpu_bridge.file?
-      # The app intentionally keeps Homebrew dependency RUNPATHs. Strip those
-      # only from this privileged library before it is copied into a trusted
-      # host loader directory by the Cask.
+      # Keep the app's dependency RUNPATHs, but never embed a Homebrew path in
+      # the privileged KWin bridge copied into a trusted host loader directory.
       system "patchelf", "--remove-rpath", gpu_bridge
       gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)
       gpu_bridge_needed = gpu_bridge_dynamic.scan(/\(NEEDED\).*?\[([^\]]+)\]/).flatten
