@@ -239,19 +239,17 @@ else
     fail "systemd-sysext.service is unavailable; enable system extensions on this immutable distribution and retry"
   sysext_state="$(systemctl is-enabled systemd-sysext.service 2>/dev/null || true)"
   case "$sysext_state" in
-    enabled|enabled-runtime|linked|linked-runtime|alias) ;;
-    disabled)
-      if systemctl enable systemd-sysext.service >/dev/null 2>&1; then
-        SYSEXT_ENABLED_BY_CASK=1
-      else
-        systemctl add-wants multi-user.target systemd-sysext.service >/dev/null 2>&1 ||
-          fail "systemd-sysext.service is disabled and could not be enabled; enable it manually and retry"
-        SYSEXT_ENABLED_BY_CASK=1
-      fi
+    enabled|linked|alias) ;;
+    enabled-runtime|linked-runtime|disabled)
+      # A runtime-only symlink disappears on reboot. Make the extension
+      # available before basic.target on every boot, then record ownership of
+      # the persistent link so uninstall can restore the prior state.
+      systemctl enable systemd-sysext.service >/dev/null 2>&1 ||
+        fail "systemd-sysext.service could not be persistently enabled; enable it manually and retry"
+      SYSEXT_ENABLED_BY_CASK=1
       ;;
     static)
-      systemctl is-active --quiet systemd-sysext.service ||
-        fail "systemd-sysext.service is static and inactive; activate system extensions for this distribution before installing the GPU bridge"
+      fail "systemd-sysext.service is static and cannot be persistently enabled; this immutable distribution needs an administrator-provided system-extension setup"
       ;;
     masked|not-found|"")
       fail "systemd-sysext.service is masked or unavailable; refusing to install an inactive system extension"
