@@ -289,6 +289,8 @@ checks = [
      '"${CMAKE_INSTALL_LIBDIR}" CACHE PATH' in gpu_bridge_patch_text and
      '${CMAKE_INSTALL_LIBDIR}/systemd/user' in gpu_bridge_patch_text and
      'SKIP_BUILD_RPATH TRUE' in gpu_bridge_patch_text and
+     'SKIP_INSTALL_RPATH TRUE' in gpu_bridge_patch_text and
+     'BUILD_WITH_INSTALL_RPATH FALSE' in gpu_bridge_patch_text and
      '-static-libstdc++ -static-libgcc' in gpu_bridge_patch_text and
      'PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ' in gpu_bridge_patch_text),
     ("Homebrew enables the GPU bridge outside SteamOS",
