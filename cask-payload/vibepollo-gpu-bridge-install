@@ -130,6 +130,9 @@ PRIOR_LIBRARY_SHA=""
 PRIOR_KWIN_SHA=""
 PRIOR_LOGIN_SHA=""
 PRIOR_SYSEXT_ROOT=""
+PRIOR_SYSEXT_ENABLED_BY_CASK="0"
+PRIOR_SYSEXT_ENABLE_LINK=""
+PRIOR_SYSEXT_ENABLE_TARGET=""
 if [[ -e "$RECEIPT" || -L "$RECEIPT" ]]; then
   require_root_file "$RECEIPT"
   receipt_mode="$(stat -c '%a' "$RECEIPT")"
@@ -140,6 +143,16 @@ if [[ -e "$RECEIPT" || -L "$RECEIPT" ]]; then
   PRIOR_KWIN_SHA="$(state_value kwin_dropin_sha256)"
   PRIOR_LOGIN_SHA="$(state_value login_dropin_sha256)"
   PRIOR_SYSEXT_ROOT="$(state_value sysext_root)"
+  PRIOR_SYSEXT_ENABLED_BY_CASK="$(state_value sysext_enabled_by_cask)"
+  PRIOR_SYSEXT_ENABLE_LINK="$(state_value sysext_enable_link)"
+  PRIOR_SYSEXT_ENABLE_TARGET="$(state_value sysext_enable_target)"
+  [[ "$PRIOR_SYSEXT_ENABLED_BY_CASK" == 0 || "$PRIOR_SYSEXT_ENABLED_BY_CASK" == 1 ]] ||
+    fail "existing GPU bridge receipt has an invalid sysext service ownership flag"
+  if [[ "$PRIOR_SYSEXT_ENABLED_BY_CASK" == 1 ]]; then
+    [[ "$PRIOR_SYSEXT_ENABLE_LINK" == /etc/systemd/system/* &&
+       "$PRIOR_SYSEXT_ENABLE_TARGET" == *systemd-sysext.service ]] ||
+      fail "existing GPU bridge receipt has incomplete systemd-sysext ownership data"
+  fi
   [[ "$PRIOR_MODE" == mutable || "$PRIOR_MODE" == sysext ]] || fail "existing GPU bridge receipt has an unknown installation mode"
   [[ "$PRIOR_LIBRARY_PATH" == /* && "$PRIOR_LIBRARY_SHA" =~ ^[0-9a-f]{64}$ ]] ||
     fail "existing GPU bridge receipt is incomplete"
@@ -265,7 +278,16 @@ else
       fail "unexpected systemd-sysext.service state: $sysext_state"
       ;;
   esac
-  if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 ]]; then
+  if [[ "$PRIOR_MODE" == sysext && "$PRIOR_SYSEXT_ENABLED_BY_CASK" == 1 ]]; then
+    # Keep ownership across upgrades; otherwise uninstall would forget that
+    # this Cask created the persistent systemd enablement link.
+    SYSEXT_ENABLED_BY_CASK=1
+    SYSEXT_ENABLE_LINK="$PRIOR_SYSEXT_ENABLE_LINK"
+    SYSEXT_ENABLE_TARGET="$PRIOR_SYSEXT_ENABLE_TARGET"
+    [[ -L "$SYSEXT_ENABLE_LINK" && "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ]] ||
+      fail "the systemd-sysext enablement link owned by the previous Cask install was changed"
+  fi
+  if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 && -z "$SYSEXT_ENABLE_LINK" ]]; then
     SYSEXT_ENABLE_LINK="$(find /etc/systemd/system -type l -name systemd-sysext.service -print -quit 2>/dev/null || true)"
     [[ -n "$SYSEXT_ENABLE_LINK" && -L "$SYSEXT_ENABLE_LINK" ]] ||
       fail "systemd enabled systemd-sysext.service but its Cask-owned enablement link could not be identified"
