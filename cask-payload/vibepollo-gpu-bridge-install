@@ -48,7 +48,7 @@ require_root_dir /var
 require_root_dir /var/lib
 require_root_dir "$(dirname "$STATE_DIR")"
 require_root_dir "$STATE_DIR"
-for command_name in stat sha256sum awk install mktemp readelf ldd realpath systemctl find sed; do
+for command_name in stat sha256sum awk install mktemp readelf ldd realpath systemctl find sed ldconfig; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -85,7 +85,6 @@ if grep -Fq '[libstdc++.so.6]' <<< "$DYNAMIC" || grep -Fq '[libgcc_s.so.1]' <<< 
 fi
 NEEDED="$(sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' <<< "$DYNAMIC")"
 grep -Fxq 'libdrm.so.2' <<< "$NEEDED" || fail "the GPU bridge does not link libdrm.so.2"
-grep -Fxq 'libgbm.so.1' <<< "$NEEDED" || fail "the GPU bridge does not link libgbm.so.1"
 LDD_OUTPUT="$(env -u LD_LIBRARY_PATH -u LD_PRELOAD ldd "$BRIDGE_SOURCE" 2>&1)" ||
   fail "could not resolve host runtime dependencies for the GPU bridge"
 if grep -q 'not found' <<< "$LDD_OUTPUT"; then
@@ -94,12 +93,12 @@ fi
 if grep -Fq '/home/linuxbrew/' <<< "$LDD_OUTPUT"; then
   fail "the GPU bridge resolves a dependency from Homebrew; refusing a secure KWin preload"
 fi
-for required in libdrm.so.2 libgbm.so.1; do
+for required in libdrm.so.2; do
   escaped_required="$(sed 's/[.]/\\./g' <<< "$required")"
   grep -Eq "^[[:space:]]*$escaped_required[[:space:]]+=>" <<< "$LDD_OUTPUT" ||
     fail "could not verify the resolved host dependency $required"
 done
-GBM_PATH="$(awk '$1 == "libgbm.so.1" && $2 == "=>" { print $3; exit }' <<< "$LDD_OUTPUT")"
+GBM_PATH="$(ldconfig -p | awk '$1 == "libgbm.so.1" && $2 ~ /x86-64/ { print $NF; exit }')"
 [[ "$GBM_PATH" == /* && -f "$GBM_PATH" ]] || fail "could not locate the host libgbm.so.1 file"
 GBM_REAL="$(realpath -e "$GBM_PATH")" || fail "could not resolve the host GBM library path"
 LIB_DIR="$(dirname "$GBM_REAL")"
