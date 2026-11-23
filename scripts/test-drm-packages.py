@@ -285,6 +285,13 @@ checks = [
     ("GPU bridge build is enabled in both generated and checked-in app Formula",
      '"-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON"' in app_formula_text and
      '"-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON"' in formula_template_text),
+    ("privileged KWin bridge strips Homebrew RUNPATH with build-only patchelf",
+     'depends_on "patchelf" => :build' in app_formula_text and
+     'depends_on "patchelf" => :build' in formula_template_text and
+     'system "patchelf", "--remove-rpath", gpu_bridge' in app_formula_text and
+     'system "patchelf", "--remove-rpath", gpu_bridge' in formula_template_text and
+     app_formula_text.index('system "patchelf", "--remove-rpath", gpu_bridge') <
+     app_formula_text.index('gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)')),
     ("GPU bridge patch stages relative host-independent install paths and removes Cellar RPATH/setuid",
      '"${CMAKE_INSTALL_LIBDIR}" CACHE PATH' in gpu_bridge_patch_text and
      '${CMAKE_INSTALL_LIBDIR}/systemd/user' in gpu_bridge_patch_text and
