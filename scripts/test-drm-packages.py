@@ -292,6 +292,13 @@ checks = [
      'system "patchelf", "--remove-rpath", gpu_bridge' in formula_template_text and
      app_formula_text.index('system "patchelf", "--remove-rpath", gpu_bridge') <
      app_formula_text.index('gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)')),
+    ("build-only patchelf dependency follows node in both generated and checked-in Formula",
+     'depends_on "node" => :build' in app_formula_text and
+     'depends_on "node" => :build' in formula_template_text and
+     app_formula_text.index('depends_on "node" => :build') <
+     app_formula_text.index('depends_on "patchelf" => :build') and
+     formula_template_text.index('depends_on "node" => :build') <
+     formula_template_text.index('depends_on "patchelf" => :build')),
     ("GPU bridge patch stages relative host-independent install paths and removes Cellar RPATH/setuid",
      '"${CMAKE_INSTALL_LIBDIR}" CACHE PATH' in gpu_bridge_patch_text and
      '${CMAKE_INSTALL_LIBDIR}/systemd/user' in gpu_bridge_patch_text and
