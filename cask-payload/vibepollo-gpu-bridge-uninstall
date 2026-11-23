@@ -90,6 +90,11 @@ if [[ "$INSTALL_MODE" == sysext ]]; then
   extension_library_relative="$(printf '%s' "$LIBRARY_PATH" | sed "s#^$SYSEXT_ROOT/##")"
   printf '%s\n' "${extension_files[@]}" | grep -Fxq "$extension_library_relative" ||
     fail "system extension library path is not recorded; preserving it"
+  library_parent_relative="$(printf '%s' "$extension_library_relative" | sed 's#/[^/]*$##')"
+  expected_directories="$(printf '%s\n' usr usr/lib usr/lib/extension-release.d "$library_parent_relative" | sort -u)"
+  actual_directories="$(find "$SYSEXT_ROOT" -mindepth 1 -type d -printf '%P\n' | sort)"
+  [[ "$actual_directories" == "$expected_directories" ]] ||
+    fail "system extension contains directories not owned by this Cask; preserving it"
   if find "$SYSEXT_ROOT" -type l -print -quit | grep -q .; then
     fail "system extension contains a symbolic link not owned by this Cask; preserving it"
   fi
