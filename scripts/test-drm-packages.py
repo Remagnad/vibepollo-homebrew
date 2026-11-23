@@ -21,7 +21,8 @@ cask = root / "Casks/vibepollo.rb"
 payload_dir = root / "cask-payload"
 payload_files = [
     "install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch",
-    "vibeshine-kms-capture", "vibeshine-vkms", "vibeshine-vkms-quiesce",
+    "vibeshine-kms-capture", "vibepollo-gpu-bridge-install", "vibepollo-gpu-bridge-uninstall",
+    "vibeshine-vkms", "vibeshine-vkms-quiesce",
     "vibeshine-vkms.service", "vibeshine-vkms-control.socket",
     "vibeshine-vkms-control@.service",
 ]
@@ -34,7 +35,7 @@ if not migration_helper.is_file() or migration_helper.is_symlink():
     raise SystemExit(f"Missing or unsafe installed-Cask migration helper: {migration_helper}")
 subprocess.run(["python3", str(migration_helper), "--self-test"], check=True)
 
-for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
+for name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch", "vibepollo-gpu-bridge-install", "vibepollo-gpu-bridge-uninstall"):
     path = payload_dir / name
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"Missing or unsafe Cask payload script: {path}")
@@ -53,6 +54,10 @@ kms_patch_script = root / "scripts/apply-kms-homebrew-patch.py"
 if not kms_patch_script.is_file() or kms_patch_script.is_symlink():
     raise SystemExit(f"Missing or unsafe KMS source patch: {kms_patch_script}")
 subprocess.run(["python3", "-c", "import ast, pathlib; ast.parse(pathlib.Path(r'" + str(kms_patch_script) + "').read_text())"], check=True)
+gpu_bridge_patch_script = root / "scripts/apply-gpu-bridge-homebrew-patch.py"
+if not gpu_bridge_patch_script.is_file() or gpu_bridge_patch_script.is_symlink():
+    raise SystemExit(f"Missing or unsafe GPU bridge source patch: {gpu_bridge_patch_script}")
+subprocess.run(["python3", "-c", "import ast, pathlib; ast.parse(pathlib.Path(r'" + str(gpu_bridge_patch_script) + "').read_text())"], check=True)
 debug_prepare_script = root / ".github/scripts/prepare-debug-source.sh"
 subprocess.run(["bash", "-n", str(debug_prepare_script)], check=True)
 for name in payload_files[-3:]:
@@ -132,7 +137,7 @@ def verify_payload_archive(archive_bytes: bytes, label: str) -> bool:
             for member in members:
                 if not member.isfile():
                     raise SystemExit(f"Unsafe non-regular file in {label}: {member.name}")
-                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch"):
+                if member.name in ("install.sh", "install-complete.sh", "uninstall.sh", "uninstall-complete.sh", "vibepollo-askpass", "vibeshine-drmctl", "vibepollo-lifecycle", "vibepollo-user-launch", "vibepollo-gpu-bridge-install", "vibepollo-gpu-bridge-uninstall"):
                     source_path = payload_dir / member.name
                 elif member.name in payload_files[-3:]:
                     source_path = integration_dir / member.name
@@ -272,8 +277,52 @@ install_text = (payload_dir / "install.sh").read_text(encoding="utf-8")
 uninstall_text = (payload_dir / "uninstall.sh").read_text(encoding="utf-8")
 controller_text = (payload_dir / "vibeshine-drmctl").read_text(encoding="utf-8")
 lifecycle_helper_text = (payload_dir / "vibepollo-lifecycle").read_text(encoding="utf-8")
+gpu_bridge_patch_text = gpu_bridge_patch_script.read_text(encoding="utf-8")
+gpu_bridge_installer_text = (payload_dir / "vibepollo-gpu-bridge-install").read_text(encoding="utf-8")
+gpu_bridge_uninstaller_text = (payload_dir / "vibepollo-gpu-bridge-uninstall").read_text(encoding="utf-8")
 
 checks = [
+    ("GPU bridge build is enabled in both generated and checked-in app Formula",
+     '"-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON"' in app_formula_text and
+     '"-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON"' in formula_template_text),
+    ("GPU bridge patch stages relative host-independent install paths and removes Cellar RPATH/setuid",
+     '"${CMAKE_INSTALL_LIBDIR}" CACHE PATH' in gpu_bridge_patch_text and
+     '${CMAKE_INSTALL_LIBDIR}/systemd/user' in gpu_bridge_patch_text and
+     'SKIP_BUILD_RPATH TRUE' in gpu_bridge_patch_text and
+     'PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ' in gpu_bridge_patch_text),
+    ("Homebrew enables the GPU bridge outside SteamOS",
+     'if(SUNSHINE_BUILD_STEAMOS)' in homebrew_patches_text and
+     'SUNSHINE_BUILD_STEAMOS OR SUNSHINE_BUILD_HOMEBREW' not in homebrew_patches_text),
+    ("source and Debug preparation apply and record the dedicated GPU bridge patch",
+     'apply-gpu-bridge-homebrew-patch.py" "$source_dir"' in prepare_source_text and
+     'apply-gpu-bridge-homebrew-patch.py" "$source_dir"' in prepare_debug_source_text and
+     '"gpu_bridge_patch": "scripts/apply-gpu-bridge-homebrew-patch.py"' in prepare_source_text and
+     '"gpu_bridge_patch": "scripts/apply-gpu-bridge-homebrew-patch.py"' in prepare_debug_source_text),
+    ("GPU bridge Debug build installs host GBM headers and enables the target",
+     "libgbm-dev" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
+    ("GPU bridge Cask installer is NVIDIA-only and resolves host runtime libraries",
+     'vendor == 0x10de' in gpu_bridge_installer_text and
+     'libdrm.so.2' in gpu_bridge_installer_text and 'libgbm.so.1' in gpu_bridge_installer_text and
+     '/home/linuxbrew/' in gpu_bridge_installer_text and
+     'install -o root -g root -m 4755 "$BRIDGE_SOURCE"' in gpu_bridge_installer_text),
+    ("GPU bridge uses trusted KWin user drop-ins and systemd-sysext for immutable /usr",
+     '/etc/systemd/user/plasma-kwin_wayland.service.d' in gpu_bridge_installer_text and
+     '/etc/systemd/user/plasma-login-kwin_wayland.service.d' in gpu_bridge_installer_text and
+     '/var/lib/extensions/vibepollo-gpu-bridge' in gpu_bridge_installer_text and
+     'systemd-sysext refresh' in gpu_bridge_installer_text),
+    ("GPU bridge Cask uninstall verifies receipts and extension content",
+     'library_sha256' in gpu_bridge_uninstaller_text and
+     'kwin_dropin_sha256' in gpu_bridge_uninstaller_text and
+     'system extension contains files not owned by this Cask' in gpu_bridge_uninstaller_text),
+    ("main Cask lifecycle invokes GPU bridge install and uninstall",
+     'vibepollo-gpu-bridge-install' in install_text and
+     'vibepollo-gpu-bridge-uninstall' in uninstall_text and
+     uninstall_text.find('vibepollo-gpu-bridge-uninstall') > uninstall_text.find('fail "vibeshine_drm remains loaded')),
+    ("Cask payload packages both GPU bridge lifecycle helpers",
+     'vibepollo-gpu-bridge-install' in cask_packager_text and
+     'vibepollo-gpu-bridge-uninstall' in cask_packager_text and
+     'vibepollo-gpu-bridge-install' in cask_packager_text[cask_packager_text.find('tar --sort=name'):]),
     ("legacy competing Cask publisher is removed",
      not (root / ".github/workflows/publish-cask-payload.yml").exists()),
     ("Linux-specific libvirtualdisplay gitlink is fetched when present",
