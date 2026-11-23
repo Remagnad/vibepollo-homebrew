@@ -330,11 +330,11 @@ LOGIN_SHA="$(sha256sum "$LOGINDROPIN_TARGET" | awk '{print $1}')"
 # /usr or exposed through a directory extension. The systemd drop-ins receive
 # the policy's normal systemd-unit file labels.
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+  command -v chcon >/dev/null 2>&1 || fail "chcon is required to label the KWin GPU bridge on this SELinux host"
+  command -v restorecon >/dev/null 2>&1 || fail "restorecon is required to label the KWin user-service drop-ins on this SELinux host"
   if [[ "$INSTALL_MODE" == sysext ]]; then
     restorecon -RF "$SYSEXT_ROOT"
   fi
-  command -v chcon >/dev/null 2>&1 || fail "chcon is required to label the KWin GPU bridge on this SELinux host"
-  command -v restorecon >/dev/null 2>&1 || fail "restorecon is required to label the KWin user-service drop-ins on this SELinux host"
   chcon --reference="$GBM_REAL" "$LIBRARY_TARGET"
   restorecon -F "$KWINDROPIN_TARGET" "$LOGINDROPIN_TARGET"
 fi
