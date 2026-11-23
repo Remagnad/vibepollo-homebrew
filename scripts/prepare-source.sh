@@ -126,7 +126,8 @@ cat > "$source_dir/HOMEBREW-UPSTREAM.json" <<EOF
   "version": "$version",
   "commit": "$actual_commit",
   "port_patch": "scripts/apply-homebrew-patches.py",
-  "kms_patch": "scripts/apply-kms-homebrew-patch.py"
+  "kms_patch": "scripts/apply-kms-homebrew-patch.py",
+  "gpu_bridge_patch": "scripts/apply-gpu-bridge-homebrew-patch.py"
 }
 EOF
 echo "::endgroup::"
