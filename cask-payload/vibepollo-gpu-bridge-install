@@ -188,6 +188,25 @@ rollback() {
 SYSEXT_INSTALLED=0
 trap rollback EXIT
 
+# Back up every previously owned file before changing it, so an upgrade that
+# fails halfway through can restore the exact working bridge and drop-ins.
+if [[ -e "$RECEIPT" ]]; then
+  [[ "$PRIOR_MODE" == sysext || "$PRIOR_LIBRARY_PATH" == "$LIB_DIR/libvibeshine-kwin-gpu.so" ]] ||
+    fail "host library directory changed since the previous install; uninstall the current GPU bridge before migrating"
+  if [[ -e "$PRIOR_LIBRARY_PATH" ]]; then
+    cp -p -- "$PRIOR_LIBRARY_PATH" "$BACKUP_LIBRARY"
+    HAD_LIBRARY=1
+  fi
+  if [[ -e "$KWINDROPIN_TARGET" ]]; then cp -p -- "$KWINDROPIN_TARGET" "$BACKUP_KWIN"; HAD_KWIN=1; fi
+  if [[ -e "$LOGINDROPIN_TARGET" ]]; then cp -p -- "$LOGINDROPIN_TARGET" "$BACKUP_LOGIN"; HAD_LOGIN=1; fi
+  if [[ "$PRIOR_MODE" == sysext ]]; then
+    [[ "$PRIOR_SYSEXT_ROOT" == "$SYSEXT_ROOT" && -d "$SYSEXT_ROOT" ]] ||
+      fail "previous system extension directory is missing or unexpected"
+    cp -a -- "$SYSEXT_ROOT" "$BACKUP_SYSEXT"
+    HAD_SYSEXT=1
+  fi
+fi
+
 INSTALL_MODE="mutable"
 write_probe=""
 if write_probe="$(mktemp "$LIB_DIR/.vibepollo-gpu-bridge-write-test.XXXXXX" 2>/dev/null)"; then
@@ -243,6 +262,10 @@ else
   fi
   relative_lib_dir="$(printf '%s' "$LIB_DIR" | sed 's#^/usr/##')"
   LIBRARY_TARGET="$SYSEXT_ROOT/usr/$relative_lib_dir/libvibeshine-kwin-gpu.so"
+  if [[ "$PRIOR_MODE" != "" && "$PRIOR_MODE" != sysext ]]; then
+    fail "the host changed from a writable to an immutable system library directory; uninstall the existing bridge and reinstall"
+  fi
+  if [[ ! -e "$SYSEXT_ROOT" ]]; then SYSEXT_INSTALLED=1; fi
   mkdir -p -- "$SYSEXT_ROOT/usr/lib/extension-release.d"
   chown root:root "$SYSEXT_ROOT"
   chmod 0755 "$SYSEXT_ROOT"
@@ -260,6 +283,12 @@ EOF
 fi
 
 if [[ "$INSTALL_MODE" == mutable ]]; then
+  if [[ "$PRIOR_MODE" != "" && "$PRIOR_MODE" != mutable ]]; then
+    fail "the host changed from an immutable to a writable system library directory; uninstall the existing bridge and reinstall"
+  fi
+  if [[ "$PRIOR_MODE" == mutable && "$PRIOR_LIBRARY_PATH" != "$LIB_DIR/libvibeshine-kwin-gpu.so" ]]; then
+    fail "the host library directory changed since the previous install; uninstall the existing bridge and reinstall"
+  fi
   if [[ -e "$LIBRARY_TARGET" || -L "$LIBRARY_TARGET" ]]; then
     [[ -f "$LIBRARY_TARGET" && ! -L "$LIBRARY_TARGET" && "$PRIOR_LIBRARY_PATH" == "$LIBRARY_TARGET" ]] ||
       fail "refusing to overwrite an unowned host library: $LIBRARY_TARGET"
@@ -267,17 +296,11 @@ if [[ "$INSTALL_MODE" == mutable ]]; then
     [[ "$(sha256sum "$LIBRARY_TARGET" | awk '{print $1}')" == "$PRIOR_LIBRARY_SHA" ]] ||
       fail "existing host GPU bridge was modified outside this Cask"
   fi
-  if [[ "$PRIOR_MODE" == mutable && -f "$BACKUP_LIBRARY" ]]; then HAD_LIBRARY=1; fi
   install -o root -g root -m 4755 "$BRIDGE_SOURCE" "$LIBRARY_TARGET.new"
   mv -f -- "$LIBRARY_TARGET.new" "$LIBRARY_TARGET"
   LIBRARY_INSTALLED=1
 fi
 
-if [[ "$PRIOR_MODE" != "" && "$PRIOR_MODE" != "$INSTALL_MODE" ]]; then
-  fail "the host changed between mutable and immutable library mode since the previous install; uninstall the current GPU bridge and reinstall"
-fi
-if [[ -f "$BACKUP_KWIN" ]]; then HAD_KWIN=1; fi
-if [[ -f "$BACKUP_LOGIN" ]]; then HAD_LOGIN=1; fi
 install -o root -g root -m 0644 "$KWINDROPIN_SOURCE" "$KWINDROPIN_TARGET.new"
 mv -f -- "$KWINDROPIN_TARGET.new" "$KWINDROPIN_TARGET"
 KWIN_INSTALLED=1
