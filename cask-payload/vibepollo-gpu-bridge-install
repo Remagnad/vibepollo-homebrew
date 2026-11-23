@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+fail() { printf 'vibepollo GPU bridge installer: error: %s\n' "$*" >&2; exit 1; }
+log() { printf 'vibepollo GPU bridge installer: %s\n' "$*" >&2; }
+require_root_dir() {
+  local path="$1" mode
+  [[ -d "$path" && ! -L "$path" ]] || fail "expected a real directory: $path"
+  [[ "$(stat -c '%u' "$path")" == 0 ]] || fail "$path must be owned by root"
+  mode="$(stat -c '%a' "$path")"
+  (( (8#$mode & 0022) == 0 )) || fail "$path must not be writable by group or others"
+}
+require_root_file() {
+  [[ -f "$1" && ! -L "$1" ]] || fail "expected a regular file: $1"
+  [[ "$(stat -c '%u' "$1")" == 0 ]] || fail "$1 must be owned by root"
+}
+state_value() {
+  local key="$1"
+  [[ -f "$RECEIPT" && ! -L "$RECEIPT" ]] || return 0
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$RECEIPT"
+}
+safe_dropin_path() {
+  local path="$1" parent
+  parent="$(dirname "$path")"
+  if [[ -e "$parent" || -L "$parent" ]]; then require_root_dir "$parent"
+  else install -d -o root -g root -m 0755 "$parent"; require_root_dir "$parent"
+  fi
+  [[ ! -L "$path" ]] || fail "refusing symbolic-link drop-in: $path"
+}
+restore_file() {
+  local destination="$1" backup="$2" existed="$3"
+  if [[ "$existed" == 1 ]]; then
+    install -o root -g root -m 0644 "$backup" "$destination.restore"
+    mv -f -- "$destination.restore" "$destination"
+  else
+    rm -f -- "$destination"
+  fi
+}
+
+[[ "$EUID" -eq 0 ]] || fail "Cask must run this helper as root"
+[[ "$#" -eq 2 ]] || fail "expected the Homebrew app prefix and DRM state directory"
+APP_PREFIX="$1"
+STATE_DIR="$2"
+[[ "$APP_PREFIX" == /* && "$APP_PREFIX" != *$'\n'* ]] || fail "invalid app Formula prefix"
+[[ -d "$APP_PREFIX" ]] || fail "app Formula prefix does not exist: $APP_PREFIX"
+require_root_dir /var
+require_root_dir /var/lib
+require_root_dir "$(dirname "$STATE_DIR")"
+require_root_dir "$STATE_DIR"
+for command_name in stat sha256sum awk install mktemp readelf ldd realpath systemctl; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
+done
+
+BRIDGE_SOURCE="$APP_PREFIX/lib/libvibeshine-kwin-gpu.so"
+KWINDROPIN_SOURCE="$APP_PREFIX/lib/systemd/user/plasma-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+LOGINDROPIN_SOURCE="$APP_PREFIX/lib/systemd/user/plasma-login-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+RECEIPT="$STATE_DIR/vibepollo-gpu-bridge"
+[[ -f "$BRIDGE_SOURCE" && ! -L "$BRIDGE_SOURCE" ]] || fail "the app Formula is missing lib/libvibeshine-kwin-gpu.so; reinstall vibepollo-app from source"
+for source in "$KWINDROPIN_SOURCE" "$LOGINDROPIN_SOURCE"; do
+  [[ -f "$source" && ! -L "$source" ]] || fail "the app Formula is missing its generated KWin systemd drop-in: $source"
+done
+
+PROGRAM_HEADERS="$(readelf -hW "$BRIDGE_SOURCE" 2>/dev/null)" || fail "could not inspect the GPU bridge ELF"
+grep -Eq 'Type:[[:space:]]+DYN' <<< "$PROGRAM_HEADERS" || fail "the GPU bridge is not an ELF shared object"
+DYNAMIC="$(readelf -dW "$BRIDGE_SOURCE" 2>/dev/null)" || fail "could not inspect the GPU bridge dynamic section"
+if grep -Eq '\((RPATH|RUNPATH)\)' <<< "$DYNAMIC"; then
+  fail "the GPU bridge contains RPATH/RUNPATH; refusing to load Homebrew Cellar libraries into KWin"
+fi
+NEEDED="$(sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' <<< "$DYNAMIC")"
+grep -Fxq 'libdrm.so.2' <<< "$NEEDED" || fail "the GPU bridge does not link libdrm.so.2"
+grep -Fxq 'libgbm.so.1' <<< "$NEEDED" || fail "the GPU bridge does not link libgbm.so.1"
+LDD_OUTPUT="$(env -u LD_LIBRARY_PATH -u LD_PRELOAD ldd "$BRIDGE_SOURCE" 2>&1)" ||
+  fail "could not resolve host runtime dependencies for the GPU bridge"
+if grep -q 'not found' <<< "$LDD_OUTPUT"; then
+  fail "the GPU bridge needs host libdrm, libgbm and compatible C++ runtime libraries; install the distro runtime packages and retry"
+fi
+if grep -Fq '/home/linuxbrew/' <<< "$LDD_OUTPUT"; then
+  fail "the GPU bridge resolves a dependency from Homebrew; refusing a secure KWin preload"
+fi
+for required in libdrm.so.2 libgbm.so.1; do
+  escaped_required="$(sed 's/[.]/\\./g' <<< "$required")"
+  grep -Eq "^[[:space:]]*$escaped_required[[:space:]]+=>" <<< "$LDD_OUTPUT" ||
+    fail "could not verify the resolved host dependency $required"
+done
+GBM_PATH="$(awk '$1 == "libgbm.so.1" && $2 == "=>" { print $3; exit }' <<< "$LDD_OUTPUT")"
+[[ "$GBM_PATH" == /* && -f "$GBM_PATH" ]] || fail "could not locate the host libgbm.so.1 file"
+GBM_REAL="$(realpath -e "$GBM_PATH")" || fail "could not resolve the host GBM library path"
+LIB_DIR="$(dirname "$GBM_REAL")"
+[[ "$LIB_DIR" =~ ^/(usr/)?lib([0-9]+)?(/|$) ]] ||
+  fail "host GBM library is not in a standard system library directory: $LIB_DIR"
+require_root_dir "$LIB_DIR"
+for source in "$KWINDROPIN_SOURCE" "$LOGINDROPIN_SOURCE"; do
+  grep -Fxq 'Environment=LD_PRELOAD=libvibeshine-kwin-gpu.so' "$source" ||
+    fail "KWin GPU bridge drop-in must use the bare library name required by secure-execution mode"
+  grep -Fxq 'Environment=KWIN_DISABLE_UDMABUF_IMPORT=1' "$source" ||
+    fail "KWin GPU bridge drop-in is missing the NVIDIA-safe udmabuf setting"
+done
+
+KWINDROPIN_TARGET="/etc/systemd/user/plasma-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+LOGINDROPIN_TARGET="/etc/systemd/user/plasma-login-kwin_wayland.service.d/vibeshine-kwin-gpu.conf"
+for target in "$KWINDROPIN_TARGET" "$LOGINDROPIN_TARGET"; do safe_dropin_path "$target"; done
+
+PRIOR_MODE=""
+PRIOR_LIBRARY_PATH=""
+PRIOR_LIBRARY_SHA=""
+PRIOR_KWIN_SHA=""
+PRIOR_LOGIN_SHA=""
+PRIOR_SYSEXT_ROOT=""
+if [[ -e "$RECEIPT" || -L "$RECEIPT" ]]; then
+  require_root_file "$RECEIPT"
+  receipt_mode="$(stat -c '%a' "$RECEIPT")"
+  (( (8#$receipt_mode & 0022) == 0 )) || fail "existing GPU bridge receipt is writable by group or others"
+  PRIOR_MODE="$(state_value install_mode)"
+  PRIOR_LIBRARY_PATH="$(state_value library_path)"
+  PRIOR_LIBRARY_SHA="$(state_value library_sha256)"
+  PRIOR_KWIN_SHA="$(state_value kwin_dropin_sha256)"
+  PRIOR_LOGIN_SHA="$(state_value login_dropin_sha256)"
+  PRIOR_SYSEXT_ROOT="$(state_value sysext_root)"
+  [[ "$PRIOR_MODE" == mutable || "$PRIOR_MODE" == sysext ]] || fail "existing GPU bridge receipt has an unknown installation mode"
+  [[ "$PRIOR_LIBRARY_PATH" == /* && "$PRIOR_LIBRARY_SHA" =~ ^[0-9a-f]{64}$ ]] ||
+    fail "existing GPU bridge receipt is incomplete"
+  if [[ -e "$PRIOR_LIBRARY_PATH" || -L "$PRIOR_LIBRARY_PATH" ]]; then
+    require_root_file "$PRIOR_LIBRARY_PATH"
+    [[ "$(sha256sum "$PRIOR_LIBRARY_PATH" | awk '{print $1}')" == "$PRIOR_LIBRARY_SHA" ]] ||
+      fail "the installed GPU bridge was modified outside this Cask; refusing to overwrite it"
+  fi
+  for pair in "$KWINDROPIN_TARGET:$PRIOR_KWIN_SHA" "$LOGINDROPIN_TARGET:$PRIOR_LOGIN_SHA"; do
+    IFS=: read -r target expected <<< "$pair"
+    if [[ -e "$target" || -L "$target" ]]; then
+      [[ -f "$target" && ! -L "$target" && "$expected" =~ ^[0-9a-f]{64}$ ]] ||
+        fail "an existing KWin drop-in is not recorded as Cask-owned: $target"
+      [[ "$(sha256sum "$target" | awk '{print $1}')" == "$expected" ]] ||
+        fail "KWin drop-in was modified outside this Cask: $target"
+    fi
+  done
+else
+  for target in "$KWINDROPIN_TARGET" "$LOGINDROPIN_TARGET"; do
+    [[ ! -e "$target" && ! -L "$target" ]] || fail "refusing to overwrite an unowned KWin drop-in: $target"
+  done
+  [[ ! -e /var/lib/extensions/vibepollo-gpu-bridge && ! -L /var/lib/extensions/vibepollo-gpu-bridge ]] ||
+    fail "a system extension named vibepollo-gpu-bridge already exists without a Cask ownership receipt"
+fi
+
+TMP_DIR="$(mktemp -d /var/tmp/vibepollo-gpu-bridge.XXXXXX)"
+COMMITTED=0
+LIBRARY_TARGET=""
+INSTALL_MODE=""
+SYSEXT_ROOT="/var/lib/extensions/vibepollo-gpu-bridge"
+BACKUP_LIBRARY="$TMP_DIR/library.previous"
+BACKUP_KWIN="$TMP_DIR/kwin.previous"
+BACKUP_LOGIN="$TMP_DIR/login.previous"
+BACKUP_SYSEXT="$TMP_DIR/sysext.previous"
+HAD_LIBRARY=0
+HAD_KWIN=0
+HAD_LOGIN=0
+HAD_SYSEXT=0
+LIBRARY_INSTALLED=0
+KWIN_INSTALLED=0
+LOGIN_INSTALLED=0
+SYSEXT_ENABLED_BY_CASK=0
+SYSEXT_ENABLE_LINK=""
+SYSEXT_ENABLE_TARGET=""
+rollback() {
+  local rc=$?
+  if [[ "$COMMITTED" != 1 ]]; then
+    if [[ "$LIBRARY_INSTALLED" == 1 ]]; then restore_file "$LIBRARY_TARGET" "$BACKUP_LIBRARY" "$HAD_LIBRARY"; fi
+    if [[ "$KWIN_INSTALLED" == 1 ]]; then restore_file "$KWINDROPIN_TARGET" "$BACKUP_KWIN" "$HAD_KWIN"; fi
+    if [[ "$LOGIN_INSTALLED" == 1 ]]; then restore_file "$LOGINDROPIN_TARGET" "$BACKUP_LOGIN" "$HAD_LOGIN"; fi
+    if [[ "$SYSEXT_INSTALLED" == 1 ]]; then
+      if [[ "$HAD_SYSEXT" == 1 ]]; then
+        rm -rf -- "$SYSEXT_ROOT"
+        cp -a -- "$BACKUP_SYSEXT" "$SYSEXT_ROOT"
+      else
+        rm -rf -- "$SYSEXT_ROOT"
+      fi
+      systemd-sysext refresh >/dev/null 2>&1 || true
+    fi
+    if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 && -n "$SYSEXT_ENABLE_LINK" &&
+          -L "$SYSEXT_ENABLE_LINK" && "$(readlink "$SYSEXT_ENABLE_LINK")" == "$SYSEXT_ENABLE_TARGET" ]]; then
+      rm -f -- "$SYSEXT_ENABLE_LINK"
+      systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+  fi
+  rm -rf -- "$TMP_DIR"
+  return "$rc"
+}
+SYSEXT_INSTALLED=0
+trap rollback EXIT
+
+INSTALL_MODE="mutable"
+write_probe=""
+if write_probe="$(mktemp "$LIB_DIR/.vibepollo-gpu-bridge-write-test.XXXXXX" 2>/dev/null)"; then
+  rm -f -- "$write_probe"
+  LIBRARY_TARGET="$LIB_DIR/libvibeshine-kwin-gpu.so"
+else
+  INSTALL_MODE="sysext"
+  [[ "$LIB_DIR" == /usr/* ]] ||
+    fail "the host loader directory $LIB_DIR is immutable and cannot be extended under /usr by systemd-sysext"
+  command -v systemd-sysext >/dev/null 2>&1 || fail "this system has a read-only /usr but no systemd-sysext; a trusted GPU bridge cannot be installed safely"
+  command -v find >/dev/null 2>&1 || fail "find is required to manage the systemd-sysext activation link"
+  systemctl cat systemd-sysext.service >/dev/null 2>&1 ||
+    fail "systemd-sysext.service is unavailable; enable system extensions on this immutable distribution and retry"
+  sysext_state="$(systemctl is-enabled systemd-sysext.service 2>/dev/null || true)"
+  case "$sysext_state" in
+    enabled|enabled-runtime|linked|linked-runtime|alias) ;;
+    disabled)
+      if systemctl enable systemd-sysext.service >/dev/null 2>&1; then
+        SYSEXT_ENABLED_BY_CASK=1
+      else
+        systemctl add-wants multi-user.target systemd-sysext.service >/dev/null 2>&1 ||
+          fail "systemd-sysext.service is disabled and could not be enabled; enable it manually and retry"
+        SYSEXT_ENABLED_BY_CASK=1
+      fi
+      ;;
+    static)
+      systemctl is-active --quiet systemd-sysext.service ||
+        fail "systemd-sysext.service is static and inactive; activate system extensions for this distribution before installing the GPU bridge"
+      ;;
+    masked|not-found|"")
+      fail "systemd-sysext.service is masked or unavailable; refusing to install an inactive system extension"
+      ;;
+    *)
+      fail "unexpected systemd-sysext.service state: $sysext_state"
+      ;;
+  esac
+  if [[ "$SYSEXT_ENABLED_BY_CASK" == 1 ]]; then
+    SYSEXT_ENABLE_LINK="$(find /etc/systemd/system -type l -name systemd-sysext.service -print -quit 2>/dev/null || true)"
+    [[ -n "$SYSEXT_ENABLE_LINK" && -L "$SYSEXT_ENABLE_LINK" ]] ||
+      fail "systemd enabled systemd-sysext.service but its Cask-owned enablement link could not be identified"
+    SYSEXT_ENABLE_TARGET="$(readlink "$SYSEXT_ENABLE_LINK")"
+    [[ "$SYSEXT_ENABLE_TARGET" == *systemd-sysext.service ]] || fail "unexpected systemd-sysext enablement target"
+    systemctl daemon-reload
+  fi
+  if [[ ! -d /var/lib/extensions ]]; then install -d -o root -g root -m 0755 /var/lib/extensions; fi
+  require_root_dir /var/lib/extensions
+  if [[ -e "$SYSEXT_ROOT" || -L "$SYSEXT_ROOT" ]]; then
+    [[ "$PRIOR_MODE" == sysext && "$PRIOR_SYSEXT_ROOT" == "$SYSEXT_ROOT" ]] ||
+      fail "refusing to overwrite an unowned system extension directory"
+    require_root_dir "$SYSEXT_ROOT"
+    cp -a -- "$SYSEXT_ROOT" "$BACKUP_SYSEXT"
+    HAD_SYSEXT=1
+  fi
+  relative_lib_dir="$(printf '%s' "$LIB_DIR" | sed 's#^/usr/##')"
+  LIBRARY_TARGET="$SYSEXT_ROOT/usr/$relative_lib_dir/libvibeshine-kwin-gpu.so"
+  mkdir -p -- "$SYSEXT_ROOT/usr/lib/extension-release.d"
+  chown root:root "$SYSEXT_ROOT"
+  chmod 0755 "$SYSEXT_ROOT"
+  cat > "$SYSEXT_ROOT/usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge" <<'EOF'
+ID=_any
+SYSEXT_SCOPE=system
+EOF
+  chown root:root "$SYSEXT_ROOT/usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge"
+  chmod 0644 "$SYSEXT_ROOT/usr/lib/extension-release.d/extension-release.vibepollo-gpu-bridge"
+  install -d -o root -g root -m 0755 "$(dirname "$LIBRARY_TARGET")"
+  install -o root -g root -m 4755 "$BRIDGE_SOURCE" "$LIBRARY_TARGET"
+  LIBRARY_INSTALLED=1
+  SYSEXT_INSTALLED=1
+  systemd-sysext refresh
+fi
+
+if [[ "$INSTALL_MODE" == mutable ]]; then
+  if [[ -e "$LIBRARY_TARGET" || -L "$LIBRARY_TARGET" ]]; then
+    [[ -f "$LIBRARY_TARGET" && ! -L "$LIBRARY_TARGET" && "$PRIOR_LIBRARY_PATH" == "$LIBRARY_TARGET" ]] ||
+      fail "refusing to overwrite an unowned host library: $LIBRARY_TARGET"
+    [[ "$PRIOR_LIBRARY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "no ownership receipt exists for the existing host GPU bridge"
+    [[ "$(sha256sum "$LIBRARY_TARGET" | awk '{print $1}')" == "$PRIOR_LIBRARY_SHA" ]] ||
+      fail "existing host GPU bridge was modified outside this Cask"
+  fi
+  if [[ "$PRIOR_MODE" == mutable && -f "$BACKUP_LIBRARY" ]]; then HAD_LIBRARY=1; fi
+  install -o root -g root -m 4755 "$BRIDGE_SOURCE" "$LIBRARY_TARGET.new"
+  mv -f -- "$LIBRARY_TARGET.new" "$LIBRARY_TARGET"
+  LIBRARY_INSTALLED=1
+fi
+
+if [[ "$PRIOR_MODE" != "" && "$PRIOR_MODE" != "$INSTALL_MODE" ]]; then
+  fail "the host changed between mutable and immutable library mode since the previous install; uninstall the current GPU bridge and reinstall"
+fi
+if [[ -f "$BACKUP_KWIN" ]]; then HAD_KWIN=1; fi
+if [[ -f "$BACKUP_LOGIN" ]]; then HAD_LOGIN=1; fi
+install -o root -g root -m 0644 "$KWINDROPIN_SOURCE" "$KWINDROPIN_TARGET.new"
+mv -f -- "$KWINDROPIN_TARGET.new" "$KWINDROPIN_TARGET"
+KWIN_INSTALLED=1
+install -o root -g root -m 0644 "$LOGINDROPIN_SOURCE" "$LOGINDROPIN_TARGET.new"
+mv -f -- "$LOGINDROPIN_TARGET.new" "$LOGINDROPIN_TARGET"
+LOGIN_INSTALLED=1
+
+LIBRARY_SHA="$(sha256sum "$LIBRARY_TARGET" | awk '{print $1}')"
+KWIN_SHA="$(sha256sum "$KWINDROPIN_TARGET" | awk '{print $1}')"
+LOGIN_SHA="$(sha256sum "$LOGINDROPIN_TARGET" | awk '{print $1}')"
+RECEIPT_TMP="$TMP_DIR/vibepollo-gpu-bridge.receipt"
+printf 'format=1\ninstall_mode=%s\nlibrary_path=%s\nlibrary_sha256=%s\nkwin_dropin_sha256=%s\nlogin_dropin_sha256=%s\nsysext_root=%s\nsysext_enabled_by_cask=%s\nsysext_enable_link=%s\nsysext_enable_target=%s\n' \
+  "$INSTALL_MODE" "$LIBRARY_TARGET" "$LIBRARY_SHA" "$KWIN_SHA" "$LOGIN_SHA" "$SYSEXT_ROOT" \
+  "$SYSEXT_ENABLED_BY_CASK" "$SYSEXT_ENABLE_LINK" "$SYSEXT_ENABLE_TARGET" > "$RECEIPT_TMP"
+chown root:root "$RECEIPT_TMP"
+chmod 0644 "$RECEIPT_TMP"
+mv -f -- "$RECEIPT_TMP" "$RECEIPT"
+COMMITTED=1
+log "installed the root-owned KWin GPU bridge in $INSTALL_MODE mode"
+log "KWin will load the bridge on its next start; log out and back in to activate it"
