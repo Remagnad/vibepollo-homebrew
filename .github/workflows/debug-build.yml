@@ -416,7 +416,6 @@ jobs:
             -DBUILD_VIRTUALDISPLAY_TOOLS=OFF \
             -DBUILD_VIRTUALDISPLAY_PROBE=OFF \
             -DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF \
-            -DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             2>&1 | tee dist/diagnostics-cmake-configure.log
