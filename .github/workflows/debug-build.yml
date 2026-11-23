@@ -26,6 +26,7 @@ on:
       - "scripts/prepare-source.sh"
       - "scripts/apply-homebrew-patches.py"
       - "scripts/apply-kms-homebrew-patch.py"
+      - "scripts/apply-gpu-bridge-homebrew-patch.py"
       - "scripts/vibepollo-launcher.sh"
       - ".github/scripts/prepare-debug-source.sh"
       - "Formula/vibepollo-app.rb"
@@ -153,7 +154,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev pkgconf ccache
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install --yes --no-install-recommends libudev-dev libdrm-dev libcap-dev libgbm-dev pkgconf ccache; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "Unable to install the Debug build dependencies after refreshing the Ubuntu package indexes three times." >&2
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Restore Debug compiler cache
         id: debug-ccache-restore
@@ -387,6 +397,7 @@ jobs:
             -DCUDAToolkit_ROOT:PATH="$cuda_prefix" \
             -DCMAKE_CUDA_HOST_COMPILER="$gcc_bin/g++-14" \
             -DSUNSHINE_ENABLE_DRM=ON \
+            -DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON \
             -DSUNSHINE_ENABLE_TRAY=ON \
             -DSUNSHINE_ENABLE_PYROWAVE=ON \
             -DSUNSHINE_ENABLE_VAAPI=ON \
@@ -405,7 +416,6 @@ jobs:
             -DBUILD_VIRTUALDISPLAY_TOOLS=OFF \
             -DBUILD_VIRTUALDISPLAY_PROBE=OFF \
             -DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF \
-            -DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             2>&1 | tee dist/diagnostics-cmake-configure.log

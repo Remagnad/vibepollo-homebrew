@@ -206,6 +206,11 @@ if [[ -d "/sys/module/$MODULE_NAME" ]]; then
   fail "vibeshine_drm remains loaded (version ${loaded_version:-unknown}, refcount $module_refcount); refusing to remove module files, helpers, state or systemd units. Close all virtual displays and retry; if the compositor still holds the module, reboot and retry. No integration files were removed"
 fi
 
+GPU_BRIDGE_UNINSTALLER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/vibepollo-gpu-bridge-uninstall"
+[[ -f "$GPU_BRIDGE_UNINSTALLER" && -x "$GPU_BRIDGE_UNINSTALLER" ]] ||
+  fail "the Cask payload is missing the privileged KWin GPU bridge uninstaller"
+"$GPU_BRIDGE_UNINSTALLER" "$STATE_DIR"
+
 log "checking ownership of installed systemd units"
 UNIT_DIR="/etc/systemd/system"
 for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service; do

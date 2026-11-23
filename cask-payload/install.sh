@@ -129,7 +129,7 @@ grep -q 'libdrm\.so\.2 =>' <<< "$KMS_LDD" ||
   fail "KMS capture requires the host system libdrm.so.2 runtime library"
 grep -q 'libcap\.so\.2 =>' <<< "$KMS_LDD" ||
   fail "KMS capture requires the host system libcap.so.2 runtime library"
-for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch; do
+for payload in vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-control@.service vibepollo-lifecycle vibepollo-user-launch vibepollo-gpu-bridge-install vibepollo-gpu-bridge-uninstall; do
   [[ -f "$STAGED_DIR/$payload" && ! -L "$STAGED_DIR/$payload" ]] || fail "Cask pool payload is missing: $payload"
 done
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
@@ -496,6 +496,12 @@ chmod 0644 "$LIFECYCLE_TMP"
 mv -f -- "$LIFECYCLE_TMP" "$LIFECYCLE_STATE"
 printf 'lifecycle_state_sha256=%s\n' "$(sha256sum "$LIFECYCLE_STATE" | awk '{print $1}')" >> "$STATE_FILE"
 chmod 0644 "$STATE_FILE"
+
+GPU_BRIDGE_INSTALLER="$STAGED_DIR/vibepollo-gpu-bridge-install"
+[[ -f "$GPU_BRIDGE_INSTALLER" && -x "$GPU_BRIDGE_INSTALLER" ]] ||
+  fail "the Cask payload is missing the privileged KWin GPU bridge installer"
+"$GPU_BRIDGE_INSTALLER" "$APP_PREFIX" "$STATE_DIR"
+
 SELINUX_STATE_COMMITTED=1
 
 if command -v mokutil >/dev/null 2>&1; then

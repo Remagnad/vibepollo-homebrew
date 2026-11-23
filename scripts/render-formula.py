@@ -229,7 +229,7 @@ __BOTTLE_BLOCK__
         "-DBUILD_VIRTUALDISPLAY_TOOLS=OFF",
         "-DBUILD_VIRTUALDISPLAY_PROBE=OFF",
         "-DBUILD_VIRTUALDISPLAY_VULKAN_LAYER=OFF",
-        "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=OFF"
+        "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON"
       ]
 
       # Homebrew's Linux build sandbox only permits writes to HOMEBREW_CACHE
@@ -272,6 +272,19 @@ __BOTTLE_BLOCK__
       end
       system "cmake", "--build", buildpath/"build", "--parallel", "6"
       system "cmake", "--install", buildpath/"build"
+
+      # Stage the KWin GPU bridge in the app keg. The privileged Cask copies
+      # it into a host loader directory after checking host runtime libraries.
+      gpu_bridge = lib/"libvibeshine-kwin-gpu.so"
+      odie "The KWin GPU bridge was not installed by CMake" unless gpu_bridge.file?
+      gpu_bridge_dynamic = Utils.safe_popen_read("readelf", "-dW", gpu_bridge)
+      gpu_bridge_needed = gpu_bridge_dynamic.scan(/\(NEEDED\).*?\[([^\]]+)\]/).flatten
+      odie "The GPU bridge is missing its required libdrm runtime link" unless
+        gpu_bridge_needed.include?("libdrm.so.2")
+      odie "The GPU bridge must statically link the C++ runtime" if
+        gpu_bridge_needed.intersect?(%w[libstdc++.so.6 libgcc_s.so.1])
+      odie "The GPU bridge must not carry an RPATH or RUNPATH into Homebrew" if
+        gpu_bridge_dynamic.match?(/\((?:RPATH|RUNPATH)\)/)
 
       # The Cask copies this peer-credential broker into its privileged runtime
       # directory. Stage it explicitly so the application bottle always carries
