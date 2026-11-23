@@ -336,9 +336,11 @@ checks = [
     ("app Formula and generated Formula both enable KMS",
      '"-DSUNSHINE_ENABLE_DRM=ON"' in app_formula_text and
      '"-DSUNSHINE_ENABLE_DRM=ON"' in formula_template_text),
-    ("Debug CI compiles KMS with host DRM/libcap headers",
+    ("Debug CI compiles KMS and GPU bridge with host DRM/GBM/libcap headers",
      "-DSUNSHINE_ENABLE_DRM=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
-     "libdrm-dev libcap-dev pkgconf" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")),
+     "-DBUILD_VIBESHINE_KWIN_GPU_BRIDGE=ON" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
+     all(package in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8")
+         for package in ("libdrm-dev", "libcap-dev", "libgbm-dev", "pkgconf"))),
     ("PR Debug builds do not block releases or mutate shared dependency caches",
      "vibepollo-debug-pr-{0}" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
      "steps.brew-paths.outcome == 'success' && github.event_name != 'pull_request'" in (root / ".github/workflows/debug-build.yml").read_text(encoding="utf-8") and
