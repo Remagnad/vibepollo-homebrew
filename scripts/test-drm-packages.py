@@ -530,6 +530,20 @@ checks = [
      "PRIOR_AUTOSTART_ENABLED=0" in install_text),
     ("Cask helper ownership receipts use newline-separated checksums",
      "printf 'helper_%s_sha256=%s\\n'" in install_text),
+    ("Cask adopts a legacy systemd unit only when root-owned and byte-identical to its payload",
+     'unit_owner="$(stat -c \'%u\' "$existing")"' in install_text and
+     'unit_mode="$(stat -c \'%a\' "$existing")"' in install_text and
+     'canonical_sha="$(sha256sum "$STAGED_DIR/$unit" | awk \'{print $1}\')"' in install_text and
+     'adopting unchanged legacy Cask unit' in install_text and
+     'does not match the exact packaged template' in install_text),
+    ("Cask GPU bridge loader consumes complete ldconfig output under pipefail",
+     'ldconfig -p | awk' in gpu_bridge_installer_text and
+     'found = $NF } END { print found }' in gpu_bridge_installer_text and
+     'print $NF; exit' not in gpu_bridge_installer_text),
+    ("Cask SELinux lookup pipelines consume complete semanage output",
+     'semanage fcontext -l -C | awk' in install_text and
+     'END { print result }' in install_text and
+     not re.search(r'semanage fcontext -l -C \\| awk[^\\n]*exit', install_text)),
     ("Cask installer runs as root through Homebrew preflight steps", "preflight_steps do" in cask_text and 'run "install.sh"' in cask_text and "sudo: true" in cask_text and '"SUDO_ASKPASS" => "{{staged_path}}/vibepollo-askpass"' in cask_text),
     ("Cask installer script does not self-elevate", "exec sudo" not in install_text and "sudo -v" not in install_text and '[[ "$EUID" -eq 0 ]]' in install_text),
     ("Cask install completion verifies root-owned state", "STATE_FILE=" in (payload_dir / "install-complete.sh").read_text(encoding="utf-8") and 'stat -c \'%u\' "$STATE_FILE"' in (payload_dir / "install-complete.sh").read_text(encoding="utf-8")),
