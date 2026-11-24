@@ -106,7 +106,7 @@ for required in libdrm.so.2; do
   grep -Eq "^[[:space:]]*$escaped_required[[:space:]]+=>" <<< "$LDD_OUTPUT" ||
     fail "could not verify the resolved host dependency $required"
 done
-GBM_PATH="$(ldconfig -p | awk '$1 == "libgbm.so.1" && $2 ~ /x86-64/ { print $NF; exit }')"
+GBM_PATH="$(ldconfig -p | awk '$1 == "libgbm.so.1" && $2 ~ /x86-64/ && found == "" { found = $NF } END { print found }')"
 [[ "$GBM_PATH" == /* && -f "$GBM_PATH" ]] || fail "could not locate the host libgbm.so.1 file"
 GBM_REAL="$(realpath -e "$GBM_PATH")" || fail "could not resolve the host GBM library path"
 LIB_DIR="$(dirname "$GBM_REAL")"
