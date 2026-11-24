@@ -160,10 +160,31 @@ for unit in vibeshine-vkms.service vibeshine-vkms-control.socket vibeshine-vkms-
   existing="/etc/systemd/system/$unit"
   [[ -e "$existing" || -L "$existing" ]] || continue
   [[ -f "$existing" && ! -L "$existing" ]] || fail "refusing unsafe existing unit: $existing"
+  unit_owner="$(stat -c '%u' "$existing")"
+  [[ "$unit_owner" == 0 ]] || fail "refusing to replace a non-root-owned existing unit: $unit"
+  unit_mode="$(stat -c '%a' "$existing")"
+  (( (8#$unit_mode & 0022) == 0 )) || fail "refusing to replace a group/other-writable existing unit: $unit"
   expected="$(state_value "unit_${unit}_sha256")"
-  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "refusing to replace an unowned existing unit: $unit"
   actual="$(sha256sum "$existing" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
+  if [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    [[ "$actual" == "$expected" ]] || fail "existing unit was modified outside this Cask: $unit"
+  else
+    # Recover from older/partially completed Cask installs that left an exact
+    # package unit in place before its ownership receipt was committed. Adopt
+    # it only when its bytes match the trusted payload exactly; never overwrite
+    # a customized or otherwise unrecognized systemd unit.
+    case "$unit" in
+      vibeshine-vkms-control.socket)
+        canonical_sha="$(sed "s/@VIBESHINE_SOCKET_GROUP@/$SOCKET_GROUP/g" "$STAGED_DIR/$unit" | sha256sum | awk '{print $1}')"
+        ;;
+      *)
+        canonical_sha="$(sha256sum "$STAGED_DIR/$unit" | awk '{print $1}')"
+        ;;
+    esac
+    [[ "$actual" == "$canonical_sha" ]] ||
+      fail "existing unit has no Cask ownership receipt and does not match the exact packaged template: $unit"
+    printf 'vibepollo Cask installer: adopting unchanged legacy Cask unit: %s\n' "$unit" >&2
+  fi
 done
 for helper in vibeshine-drmctl vibeshine-vkms vibeshine-vkms-quiesce vibeshine-vkms-peercred vibepollo-lifecycle vibepollo-user-launch vibeshine-kms-capture; do
   existing="$BIN_DIR/$helper"
@@ -356,11 +377,11 @@ done
 systemctl daemon-reload
 
 if [[ "$SELINUX_ACTIVE" == "1" ]]; then
-  existing_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  existing_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_FCONTEXT_SPEC" '$1 == spec && result == "" { result = $NF } END { print result }')"
   prior_selinux_context=""
   if [[ "$PRIOR_SELINUX_RULE_OWNED" == "1" &&
         "$PRIOR_SELINUX_FCONTEXT_SPEC" == "$SELINUX_LEGACY_FCONTEXT_SPEC" ]]; then
-    prior_selinux_context="$(semanage fcontext -l -C | awk -v spec="$PRIOR_SELINUX_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+    prior_selinux_context="$(semanage fcontext -l -C | awk -v spec="$PRIOR_SELINUX_FCONTEXT_SPEC" '$1 == spec && result == "" { result = $NF } END { print result }')"
     if [[ -n "$prior_selinux_context" ]]; then
       IFS=: read -r _ _ prior_selinux_type _ <<< "$prior_selinux_context"
       [[ "$prior_selinux_type" == "bin_t" ]] ||
@@ -401,7 +422,7 @@ if [[ "$SELINUX_ACTIVE" == "1" ]]; then
   fi
   SELINUX_STATE_FCONTEXT_SPEC="$SELINUX_FCONTEXT_SPEC"
 
-  existing_module_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec { print $NF; exit }')"
+  existing_module_selinux_context="$(semanage fcontext -l -C | awk -v spec="$SELINUX_MODULE_FCONTEXT_SPEC" '$1 == spec && result == "" { result = $NF } END { print result }')"
   if [[ -n "$existing_module_selinux_context" ]]; then
     IFS=: read -r _ _ existing_module_selinux_type _ <<< "$existing_module_selinux_context"
     [[ "$existing_module_selinux_type" == "modules_object_t" ]] ||
