@@ -284,7 +284,7 @@ CONFIG_FILE="$KERNEL_BUILD_DIR/.config"
 [[ -f "$CONFIG_FILE" ]] || CONFIG_FILE="/boot/config-$KERNEL_RELEASE"
 SIGN_HASH="sha256"
 if [[ -f "$CONFIG_FILE" ]]; then
-  CONFIGURED_HASH="$(sed -n 's/^CONFIG_MODULE_SIG_HASH="\([A-Za-z0-9_-]*\)"$/\1/p' "$CONFIG_FILE" | head -n1)"
+  CONFIGURED_HASH="$(awk -F'"' '/^CONFIG_MODULE_SIG_HASH=/ { value = $2 } END { print value }' "$CONFIG_FILE")"
   [[ -z "$CONFIGURED_HASH" ]] || SIGN_HASH="$CONFIGURED_HASH"
 fi
 case "$SIGN_HASH" in
